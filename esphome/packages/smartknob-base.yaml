@@ -194,6 +194,12 @@ binary_sensor:
       - delayed_off: 2s
 
 text_sensor:
+  # ESPHome version, a hash of this exact compiled config, and the build
+  # timestamp -- changes on every build, so it's a reliable way to confirm
+  # an OTA update actually landed rather than something to remember to bump.
+  - platform: version
+    name: Firmware version
+
   - platform: homeassistant
     id: weather_condition
     name: Weather condition
