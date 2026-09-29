@@ -20,6 +20,7 @@ haptic detents to match. It replaces the SeedLabs firmware entirely.
 ```
 esphome/
   smartknob-devkit.yaml     device config: Wi-Fi, API, list of pages
+  smartknob-starter.yaml    test image with no Wi-Fi details or keys inside
   secrets.yaml.example      copy to secrets.yaml
   packages/
     smartknob-base.yaml     hardware, haptics, display, sensors (always include)
@@ -39,15 +40,36 @@ The first flash must be over USB: ESPHome uses a different partition table
 from the SeedLabs firmware, so it cannot be installed over the air on top.
 Later updates can be over Wi-Fi.
 
-1. **Back up the SeedLabs firmware** (optional, lets you restore it exactly).
-   Connect USB-C and run:
-   ```
-   esptool.py --chip esp32s3 read_flash 0 0x1000000 smartknob-seedlabs-backup.bin
-   ```
-   To restore later: `esptool.py --chip esp32s3 write_flash 0 smartknob-seedlabs-backup.bin`.
-2. `cp secrets.yaml.example secrets.yaml` and fill it in.
-3. Edit the pages in `smartknob-devkit.yaml` (see [Pages](#pages)).
-4. From this folder: `esphome run smartknob-devkit.yaml` and pick the USB
+**Back up the SeedLabs firmware first** if you might want it back (restores
+it exactly). Connect USB-C and run:
+```
+esptool.py --chip esp32s3 read_flash 0 0x1000000 smartknob-seedlabs-backup.bin
+```
+To restore later: `esptool.py --chip esp32s3 write_flash 0 smartknob-seedlabs-backup.bin`.
+
+### Quickest: the starter image
+
+`smartknob-starter.yaml` builds an image with no Wi-Fi details or keys in
+it, so a built copy (`smartknob-starter.factory.bin`) can be flashed as-is:
+
+1. Open <https://web.esphome.io> in Chrome or Edge, plug in the knob,
+   choose **Connect** and pick its USB port, then **Install** and choose
+   the `.factory.bin` file.
+2. When it has finished, set up Wi-Fi from the same page (it asks over
+   USB). If it does not offer to, join the **SmartKnob setup** Wi-Fi network
+   from a phone and enter your Wi-Fi details on the page that opens.
+3. [Add it to Home Assistant](#add-it-to-home-assistant). Home Assistant
+   sets its encryption key; until then the API and over-the-air updates are
+   unencrypted, so use it on a trusted network only.
+
+Its pages use placeholder entities. Flash your first own build (below) over
+USB: once Home Assistant has set a key, over-the-air updates need that key.
+
+### Your own build
+
+1. `cp secrets.yaml.example secrets.yaml` and fill it in.
+2. Edit the pages in `smartknob-devkit.yaml` (see [Pages](#pages)).
+3. From this folder: `esphome run smartknob-devkit.yaml` and pick the USB
    port. If the port does not appear, hold the BOOT button while plugging in.
 
 From Home Assistant's ESPHome Builder instead: copy `components/`,
@@ -56,8 +78,10 @@ From Home Assistant's ESPHome Builder instead: copy `components/`,
 USB from the Builder (Chrome or Edge) or download the factory image and use
 <https://web.esphome.io>.
 
-Then add the device in Home Assistant (Settings > Devices & services; it is
-usually discovered) and **enable "Allow the device to perform Home Assistant
+### Add it to Home Assistant
+
+Add the device under Settings > Devices & services (it is usually
+discovered), then **enable "Allow the device to perform Home Assistant
 actions"** in the device's ESPHome integration options. Without that, the
 knob shows values but cannot change anything.
 

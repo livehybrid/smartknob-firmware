@@ -1,0 +1,71 @@
+# Starter image for the SmartKnob Dev Kit: no Wi-Fi details or keys inside,
+# so the built file can be flashed as-is from https://web.esphome.io.
+#   Wi-Fi:      set over USB right after flashing (Improv), or join the
+#               "SmartKnob setup" hotspot and use the page that opens.
+#   Encryption: Home Assistant sets the key when you add the device; until
+#               then the API and OTA are unencrypted, so keep it on a
+#               trusted network.
+# The pages below use placeholder entities. For your own build with your
+# entities and your own keys, use smartknob-devkit.yaml.
+
+substitutions:
+  name: smartknob
+  friendly_name: SmartKnob
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.0
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+wifi:
+  ap:
+    ssid: ${friendly_name} setup
+
+captive_portal:
+
+improv_serial:
+
+api:
+  encryption: {} # key set by Home Assistant
+
+ota:
+  - platform: esphome
+
+packages:
+  base: !include packages/smartknob-base.yaml
+  setup: !include packages/page-setup.yaml
+  desk_lamp: !include
+    file: packages/page-light.yaml
+    vars:
+      id: desk_lamp
+      entity: light.desk_lamp
+      name: Desk lamp
+  speakers: !include
+    file: packages/page-media-volume.yaml
+    vars:
+      id: speakers
+      entity: media_player.living_room
+      name: Speakers
+  heating: !include
+    file: packages/page-climate.yaml
+    vars:
+      id: heating
+      entity: climate.living_room
+      name: Heating
+  blind: !include
+    file: packages/page-cover.yaml
+    vars:
+      id: blind
+      entity: cover.office_blind
+      name: Blind
+  desk_fan: !include
+    file: packages/page-switch.yaml
+    vars:
+      id: desk_fan
+      entity: switch.desk_fan
+      name: Desk fan
