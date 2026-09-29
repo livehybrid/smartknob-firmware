@@ -10,10 +10,8 @@ haptic detents to match. It replaces the SeedLabs firmware entirely.
 | Short press  | The page's action (toggle, play/pause, ...)     |
 | Long press   | Next page                                       |
 
-> **Status: not yet run on hardware.** Written for ESPHome 2026.9.0. The
-> haptics component and everything except the display pages compile; the
-> full firmware passes `esphome config` but has not been built yet (the
-> build machine could not download LVGL). The haptics maths is unit tested
+> **Status: not yet run on hardware.** The full firmware builds with ESPHome
+> 2026.9.0 without compiler warnings, and the haptics maths is unit tested
 > on a PC (`tests/`). Treat the first flash as a test run: see
 > [First power-up](#first-power-up).
 
