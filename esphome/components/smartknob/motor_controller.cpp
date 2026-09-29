@@ -16,6 +16,11 @@ static const char *const TAG = "smartknob.motor";
 
 static constexpr float RAD_TO_DEG = 57.2957795f;
 static constexpr int64_t STUCK_PRESS_US = 30000000;  // re-baseline after a 30 s "press"
+// The HX711 converts at 10 or 80 Hz: never poll it faster than this, whatever DOUT says.
+static constexpr int64_t MIN_STRAIN_INTERVAL_US = 8000;
+static constexpr uint8_t MAX_STRAIN_BAD_READS = 20;
+// Iterations in a row allowed to overrun before the task sleeps a whole tick.
+static constexpr uint32_t MAX_OVERRUNS_IN_A_ROW = 2;
 
 static bool IRAM_ATTR on_control_timer(gptimer_handle_t /*timer*/, const gptimer_alarm_event_data_t * /*edata*/,
                                        void *ctx) {
@@ -172,8 +177,22 @@ void MotorController::run_() {
 
   const float nominal_dt = 1.0f / static_cast<float>(this->config_.control_hz);
   int64_t last_us = esp_timer_get_time();
+  uint32_t overruns_in_a_row = 0;
   for (;;) {
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+    // Wait for the next period. A tick already pending means the last
+    // iteration overran; if that keeps happening, sleep a whole RTOS tick so
+    // the lower-priority tasks on this core (ESPHome's main loop) still run.
+    if (ulTaskNotifyTake(pdTRUE, 0) != 0) {
+      this->overruns_++;
+      if (++overruns_in_a_row > MAX_OVERRUNS_IN_A_ROW) {
+        overruns_in_a_row = 0;
+        vTaskDelay(1);
+        ulTaskNotifyTake(pdTRUE, 0);  // drop the ticks missed while asleep
+      }
+    } else {
+      overruns_in_a_row = 0;
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+    }
     const int64_t start_us = esp_timer_get_time();
     float dt = static_cast<float>(start_us - last_us) * 1e-6f;
     last_us = start_us;
@@ -292,9 +311,27 @@ bool MotorController::read_sensor_(float dt) {
 }
 
 void MotorController::update_strain_(int64_t now_us) {
+  if (this->last_strain_us_ != 0 && now_us - this->last_strain_us_ < MIN_STRAIN_INTERVAL_US)
+    return;
   if (!this->strain_.ready())
     return;
   const int32_t raw = this->strain_.read();
+  // After the 25th clock a working HX711 releases DOUT (high) until its next
+  // conversion. If DOUT stays low, the readings are noise: after a run of
+  // those, stop using the sensor rather than generate phantom presses.
+  if (this->strain_.ready()) {
+    this->last_strain_us_ = now_us;
+    if (++this->strain_bad_reads_ >= MAX_STRAIN_BAD_READS) {
+      this->strain_enabled_ = false;
+      this->strain_fault_ = true;
+      if (this->pressed_) {
+        this->pressed_ = false;
+        this->release_count_++;
+      }
+    }
+    return;
+  }
+  this->strain_bad_reads_ = 0;
   const float raw_f = static_cast<float>(raw);
 
   this->strain_samples_++;
@@ -406,6 +443,7 @@ void MotorController::publish_(int64_t loop_start_us) {
   s.calibration = this->calibration_;
   s.calibration_message = this->calibration_message_;
   s.strain_present = this->strain_enabled_ && this->baseline_ready_;
+  s.strain_fault = this->strain_fault_;
   s.pressed = this->pressed_;
   s.press_count = this->press_count_;
   s.release_count = this->release_count_;
@@ -413,6 +451,7 @@ void MotorController::publish_(int64_t loop_start_us) {
   s.strain_rate_hz = this->strain_rate_hz_;
   s.loop_count = this->loop_count_;
   s.max_loop_us = this->max_loop_us_;
+  s.overruns = this->overruns_;
   portEXIT_CRITICAL(&this->state_lock_);
 }
 

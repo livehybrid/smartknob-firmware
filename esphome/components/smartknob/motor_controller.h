@@ -41,7 +41,7 @@ struct ControllerConfig {
   int encoder_data{-1};
   int encoder_cs{-1};
   uint32_t encoder_clock_hz{4000000};
-  uint32_t control_hz{5000};
+  uint32_t control_hz{1000};
   float sensor_filter_hz{300.0f};
   float velocity_filter_s{0.002f};
   bool invert{false};
@@ -75,6 +75,7 @@ struct ControllerState {
   MotorCalibration calibration{};
   const char *calibration_message{""};
   bool strain_present{false};
+  bool strain_fault{false};  // HX711 misbehaved and was disabled
   bool pressed{false};
   uint32_t press_count{0};
   uint32_t release_count{0};
@@ -82,6 +83,7 @@ struct ControllerState {
   float strain_rate_hz{0.0f};
   uint32_t loop_count{0};
   uint32_t max_loop_us{0};
+  uint32_t overruns{0};  // iterations that ran past their period
 };
 
 class MotorController {
@@ -190,9 +192,12 @@ class MotorController {
   int64_t strain_rate_window_us_{0};
   float strain_rate_hz_{0.0f};
   int64_t last_strain_us_{0};
+  uint8_t strain_bad_reads_{0};
+  bool strain_fault_{false};
   // stats
   uint32_t loop_count_{0};
   uint32_t max_loop_us_{0};
+  uint32_t overruns_{0};
 };
 
 }  // namespace esphome::smartknob

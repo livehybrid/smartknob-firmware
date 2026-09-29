@@ -157,9 +157,11 @@ void HX711Reader::begin(int dout_pin, int sck_pin) {
   gpio_config_t io{};
   io.pin_bit_mask = 1ULL << dout_pin;
   io.mode = GPIO_MODE_INPUT;
+  io.pull_up_en = GPIO_PULLUP_ENABLE;  // a missing HX711 reads "not ready", not noise
   gpio_config(&io);
   io.pin_bit_mask = 1ULL << sck_pin;
   io.mode = GPIO_MODE_OUTPUT;
+  io.pull_up_en = GPIO_PULLUP_DISABLE;
   gpio_config(&io);
   gpio_set_level(static_cast<gpio_num_t>(sck_pin), 0);  // SCK low = powered up
 }

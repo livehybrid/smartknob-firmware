@@ -231,6 +231,20 @@ void SmartKnob::loop() {
     this->calibrate();
   }
 
+  if (s.strain_fault && !this->strain_fault_logged_) {
+    this->strain_fault_logged_ = true;
+    ESP_LOGW(TAG, "Strain gauge (HX711) is not behaving like one: press detection disabled");
+  }
+  // The motor loop has to leave time for this loop; say so if it can't.
+  if (now - this->last_overrun_check_ms_ >= 10000) {
+    this->last_overrun_check_ms_ = now;
+    if (s.overruns != this->last_overruns_) {
+      ESP_LOGW(TAG, "Motor loop overran its %" PRIu32 " Hz period %" PRIu32 " times in 10 s (longest %" PRIu32 " us)",
+               this->config_.control_hz, s.overruns - this->last_overruns_, s.max_loop_us);
+      this->last_overruns_ = s.overruns;
+    }
+  }
+
 #ifdef USE_SENSOR
   // Strain signal for tuning the press thresholds: at most 4 Hz, only on change.
   if (this->strain_sensor_ != nullptr && s.strain_present && now - this->last_strain_publish_ms_ >= 250) {
@@ -278,11 +292,13 @@ void SmartKnob::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Calibration: none%s", this->auto_calibrate_ ? " (runs automatically after boot)" : "");
   }
-  ESP_LOGCONFIG(TAG, "  Encoder %s, field status %u, %" PRIu32 " read errors, loop max %" PRIu32 " us",
-                s.sensor_ok ? "OK" : "NOT RESPONDING", s.field_status, s.sensor_errors, s.max_loop_us);
+  ESP_LOGCONFIG(TAG,
+                "  Encoder %s, field status %u, %" PRIu32 " read errors, loop max %" PRIu32 " us, %" PRIu32
+                " overruns",
+                s.sensor_ok ? "OK" : "NOT RESPONDING", s.field_status, s.sensor_errors, s.max_loop_us, s.overruns);
   if (c.strain_dout >= 0)
-    ESP_LOGCONFIG(TAG, "  Strain gauge %s, %.1f samples/s", s.strain_present ? "OK" : "not ready",
-                  s.strain_rate_hz);
+    ESP_LOGCONFIG(TAG, "  Strain gauge %s, %.1f samples/s",
+                  s.strain_fault ? "FAULTY (disabled)" : (s.strain_present ? "OK" : "not ready"), s.strain_rate_hz);
 }
 
 }  // namespace esphome::smartknob

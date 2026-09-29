@@ -323,8 +323,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_STRAIN_GAUGE): STRAIN_SCHEMA,
             # Flip if turning clockwise lowers the position.
             cv.Optional(CONF_INVERT_DIRECTION, default=False): cv.boolean,
-            cv.Optional(CONF_CONTROL_FREQUENCY, default="5kHz"): cv.All(
-                cv.frequency, cv.Range(min=1000, max=10000)
+            # The loop code runs from flash; faster rates leave less of core 1
+            # for ESPHome (the task backs off if it overruns).
+            cv.Optional(CONF_CONTROL_FREQUENCY, default="1kHz"): cv.All(
+                cv.frequency, cv.Range(min=500, max=5000)
             ),
             cv.Optional(CONF_TASK_CORE, default=1): cv.int_range(min=0, max=1),
             cv.Optional(CONF_TASK_PRIORITY, default=20): cv.int_range(min=2, max=24),

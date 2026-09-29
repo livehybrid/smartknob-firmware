@@ -2,15 +2,17 @@
 # so the built file can be flashed as-is from https://web.esphome.io.
 #   Wi-Fi:      set over USB right after flashing (Improv), or join the
 #               "SmartKnob setup" hotspot and use the page that opens.
-#   Encryption: Home Assistant sets the key when you add the device; until
-#               then the API and OTA are unencrypted, so keep it on a
-#               trusted network.
-# The pages below use placeholder entities. For your own build with your
-# entities and your own keys, use smartknob-devkit.yaml.
+#   Encryption: none. ESPHome 2026.9.0 crashes in safe mode when the API has
+#               an encryption block but no built-in key, so this image has
+#               neither; keep it on a trusted network and move to your own
+#               build (smartknob-devkit.yaml, with a key) after testing.
+# The pages below use placeholder entities. The display stays on for 5
+# minutes after activity, to make first tests easier.
 
 substitutions:
   name: smartknob
   friendly_name: SmartKnob
+  display_timeout: 5min
 
 esphome:
   name: ${name}
@@ -31,7 +33,6 @@ captive_portal:
 improv_serial:
 
 api:
-  encryption: {} # key set by Home Assistant
 
 ota:
   - platform: esphome

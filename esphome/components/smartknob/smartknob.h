@@ -182,6 +182,9 @@ class SmartKnob : public Component
   uint32_t last_strain_publish_ms_{0};
   float last_strain_published_{-1.0f};
   uint32_t last_diagnostics_ms_{0};
+  uint32_t last_overrun_check_ms_{0};
+  uint32_t last_overruns_{0};
+  bool strain_fault_logged_{false};
 
 #ifdef USE_SENSOR
   sensor::Sensor *position_sensor_{nullptr};

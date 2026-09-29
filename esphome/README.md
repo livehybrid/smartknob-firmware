@@ -54,16 +54,18 @@ it, so a built copy (`smartknob-starter.factory.bin`) can be flashed as-is:
 
 1. Open <https://web.esphome.io> in Chrome or Edge, plug in the knob,
    choose **Connect** and pick its USB port, then **Install** and choose
-   the `.factory.bin` file.
+   the `.factory.bin` file. Tick **Erase device** if you are replacing a
+   build that was crash-looping: ESPHome keeps its boot-failure count in
+   flash and would otherwise start in safe mode.
 2. When it has finished, set up Wi-Fi from the same page (it asks over
    USB). If it does not offer to, join the **SmartKnob setup** Wi-Fi network
    from a phone and enter your Wi-Fi details on the page that opens.
-3. [Add it to Home Assistant](#add-it-to-home-assistant). Home Assistant
-   sets its encryption key; until then the API and over-the-air updates are
-   unencrypted, so use it on a trusted network only.
+3. [Add it to Home Assistant](#add-it-to-home-assistant).
 
-Its pages use placeholder entities. Flash your first own build (below) over
-USB: once Home Assistant has set a key, over-the-air updates need that key.
+The starter image has no encryption (ESPHome 2026.9.0 crashes in safe mode
+when the API expects a key that is not built in), so use it on a trusted
+network only and move to your own build, which has a key, after testing.
+Its pages use placeholder entities.
 
 ### Your own build
 
@@ -216,7 +218,7 @@ smartknob:
     click_duration: 6ms
     max_velocity: 8         # rad/s: presses ignored while spinning faster
   invert_direction: false
-  control_frequency: 5kHz
+  control_frequency: 1kHz   # up to 5kHz; the loop backs off if it overruns
   task_core: 1
   task_priority: 20
   auto_calibrate: true      # calibrate on first boot if nothing is stored
@@ -250,10 +252,20 @@ Sensors (`platform: smartknob`): `position`, `strain`, `loop_time`.
 Binary sensor: `pressed`. Lambdas can call `id(knob).get_position()`,
 `is_pressed()`, `is_calibrated()`, `is_calibrating()`.
 
+## Known issues
+
+* **ESPHome 2026.9.0 safe mode with API encryption.** After 10 failed
+  boots ESPHome starts in safe mode, which never creates the API server;
+  the OTA component still reads its encryption key from it and crashes. The
+  starter image has no encryption, so it is unaffected. Builds with an API
+  key reach safe mode but crash on an over-the-air upload there, so recover
+  those over USB.
+
 ## How it works
 
-A FreeRTOS task pinned to core 1 runs the control loop at 5 kHz, paced by a
-hardware timer: read the MT6701 over SPI, filter, run the detent engine
+A FreeRTOS task pinned to core 1 runs the control loop at 1 kHz, paced by a
+hardware timer (if it overruns its period repeatedly it sleeps a tick, so
+ESPHome's main loop on the same core always gets time): read the MT6701 over SPI, filter, run the detent engine
 (a port of Scott Bezek's algorithm, with one sign convention and
 rate-independent maths), then apply the torque with voltage-mode FOC and
 space-vector PWM on the MCPWM peripheral (complementary outputs with dead
