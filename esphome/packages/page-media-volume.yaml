@@ -1,0 +1,157 @@
+# Media page: turn for volume, press for play/pause.
+#
+# vars:
+#   id:     unique page id (letters, digits, underscores)
+#   entity: media player, e.g. media_player.living_room
+#   name:   title shown on the display
+#   step:   volume step in percent, must divide 100 (default 2)
+#   color:  accent colour (default green)
+
+defaults:
+  step: "2"
+  color: "0x30D158"
+
+globals:
+  - id: ${id}_value # volume in percent
+    type: int
+    initial_value: "0"
+  - id: ${id}_dirty
+    type: bool
+    initial_value: "false"
+  - id: ${id}_touched
+    type: uint32_t
+    initial_value: "0"
+
+sensor:
+  - platform: homeassistant
+    id: ${id}_ha_volume
+    entity_id: ${entity}
+    attribute: volume_level
+    internal: true
+    on_value:
+      - lambda: |-
+          if (millis() - id(${id}_touched) < 1500 || std::isnan(x)) return;
+          id(${id}_value) = (int) lroundf(x * 100.0f);
+      - script.execute: ${id}_show
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_ha_state
+    entity_id: ${entity}
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+  - platform: homeassistant
+    id: ${id}_ha_title
+    entity_id: ${entity}
+    attribute: media_title
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda return id(${id}_value);
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            const std::string &state = id(${id}_ha_state).state;
+            if (state == "unavailable" || state == "off") return std::string("--");
+            return str_sprintf("%d%%", id(${id}_value));
+      - lvgl.label.update:
+          id: ${id}_detail
+          text: !lambda |-
+            const std::string &state = id(${id}_ha_state).state;
+            const std::string &title = id(${id}_ha_title).state;
+            if (state == "playing" && !title.empty() && title != "None") return title;
+            return state;
+      - if:
+          condition:
+            and:
+              - lvgl.page.is_showing: ${id}_page
+              - lambda: return millis() - id(${id}_touched) >= 1500;
+          then:
+            - smartknob.set_position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - lambda: |-
+              id(${id}_value) = x * ${step};
+              id(${id}_dirty) = true;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+  on_short_press:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - homeassistant.action:
+              action: media_player.media_play_pause
+              data:
+                entity_id: ${entity}
+
+interval:
+  - interval: 250ms
+    then:
+      - if:
+          condition:
+            lambda: return id(${id}_dirty);
+          then:
+            - lambda: id(${id}_dirty) = false;
+            - homeassistant.action:
+                action: media_player.volume_set
+                data:
+                  entity_id: ${entity}
+                  volume_level: !lambda return id(${id}_value) / 100.0f;
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - smartknob.set_profile:
+            min_position: 0
+            max_position: !lambda return 100 / ${step};
+            position_width: 4
+            detent_strength: 0.6
+            endstop_strength: 1.0
+            position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 100
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: ${color}
+        - label:
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "${name}"
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            id: ${id}_detail
+            styles: page_detail
+            align: CENTER
+            y: 50
+            width: 160
+            long_mode: SCROLL_CIRCULAR
+            text_align: CENTER
+            text: ""

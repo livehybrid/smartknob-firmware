@@ -1,0 +1,69 @@
+# SeedLabs SmartKnob Dev Kit running ESPHome, for Home Assistant.
+# See README.md for flashing, calibration and page set-up.
+
+substitutions:
+  name: smartknob
+  friendly_name: SmartKnob
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.0
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ${friendly_name} setup
+    password: !secret fallback_ap_password
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption: {} # uses the api key
+
+# Pages appear on the knob in this order; long-press moves to the next one.
+# Replace the entity IDs with your own (the ones below are placeholders).
+packages:
+  base: !include packages/smartknob-base.yaml
+  setup: !include packages/page-setup.yaml
+  desk_lamp: !include
+    file: packages/page-light.yaml
+    vars:
+      id: desk_lamp
+      entity: light.desk_lamp
+      name: Desk lamp
+  speakers: !include
+    file: packages/page-media-volume.yaml
+    vars:
+      id: speakers
+      entity: media_player.living_room
+      name: Speakers
+  heating: !include
+    file: packages/page-climate.yaml
+    vars:
+      id: heating
+      entity: climate.living_room
+      name: Heating
+  blind: !include
+    file: packages/page-cover.yaml
+    vars:
+      id: blind
+      entity: cover.office_blind
+      name: Blind
+  desk_fan: !include
+    file: packages/page-switch.yaml
+    vars:
+      id: desk_fan
+      entity: switch.desk_fan
+      name: Desk fan

@@ -1,0 +1,142 @@
+# Cover page: turn for position, press to open/close (or stop while moving).
+#
+# vars:
+#   id:     unique page id (letters, digits, underscores)
+#   entity: cover entity, e.g. cover.office_blind
+#   name:   title shown on the display
+#   step:   position step in percent, must divide 100 (default 5)
+#   color:  accent colour (default blue)
+
+defaults:
+  step: "5"
+  color: "0x0A84FF"
+
+globals:
+  - id: ${id}_value # position in percent, 100 = open
+    type: int
+    initial_value: "0"
+  - id: ${id}_dirty
+    type: bool
+    initial_value: "false"
+  - id: ${id}_touched
+    type: uint32_t
+    initial_value: "0"
+
+sensor:
+  - platform: homeassistant
+    id: ${id}_ha_position
+    entity_id: ${entity}
+    attribute: current_position
+    internal: true
+    on_value:
+      - lambda: |-
+          if (millis() - id(${id}_touched) < 1500 || std::isnan(x)) return;
+          id(${id}_value) = (int) lroundf(x);
+      - script.execute: ${id}_show
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_ha_state
+    entity_id: ${entity}
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda return id(${id}_value);
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            if (id(${id}_ha_state).state == "unavailable") return std::string("--");
+            return str_sprintf("%d%%", id(${id}_value));
+      - lvgl.label.update:
+          id: ${id}_detail
+          text: !lambda return id(${id}_ha_state).state;
+      - if:
+          condition:
+            and:
+              - lvgl.page.is_showing: ${id}_page
+              - lambda: return millis() - id(${id}_touched) >= 1500;
+          then:
+            - smartknob.set_position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - lambda: |-
+              id(${id}_value) = x * ${step};
+              id(${id}_dirty) = true;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+  on_short_press:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - homeassistant.action:
+              action: cover.toggle
+              data:
+                entity_id: ${entity}
+
+interval:
+  - interval: 250ms
+    then:
+      - if:
+          condition:
+            lambda: return id(${id}_dirty);
+          then:
+            - lambda: id(${id}_dirty) = false;
+            - homeassistant.action:
+                action: cover.set_cover_position
+                data:
+                  entity_id: ${entity}
+                  position: !lambda return id(${id}_value);
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - smartknob.set_profile:
+            min_position: 0
+            max_position: !lambda return 100 / ${step};
+            position_width: 8
+            detent_strength: 1.0
+            endstop_strength: 1.0
+            position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 100
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: ${color}
+        - label:
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "${name}"
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            id: ${id}_detail
+            styles: page_detail
+            align: CENTER
+            y: 50
+            text: ""

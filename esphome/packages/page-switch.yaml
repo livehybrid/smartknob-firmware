@@ -1,0 +1,115 @@
+# On/off page: a two-position knob with a strong detent (turn or press).
+# Works with anything homeassistant.turn_on/turn_off understands: switch,
+# light, fan, input_boolean, automation...
+#
+# vars:
+#   id:     unique page id (letters, digits, underscores)
+#   entity: entity to switch, e.g. switch.coffee_machine
+#   name:   title shown on the display
+#   color:  accent colour (default yellow)
+
+defaults:
+  color: "0xFFD60A"
+
+globals:
+  - id: ${id}_value # 0 = off, 1 = on
+    type: int
+    initial_value: "0"
+  - id: ${id}_touched
+    type: uint32_t
+    initial_value: "0"
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_ha_state
+    entity_id: ${entity}
+    internal: true
+    on_value:
+      - lambda: |-
+          if (millis() - id(${id}_touched) < 1500) return;
+          id(${id}_value) = x == "on" ? 1 : 0;
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda return id(${id}_value) * 100;
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            if (id(${id}_ha_state).state == "unavailable") return std::string("--");
+            return std::string(id(${id}_value) ? "On" : "Off");
+      - if:
+          condition:
+            and:
+              - lvgl.page.is_showing: ${id}_page
+              - lambda: return millis() - id(${id}_touched) >= 1500;
+          then:
+            - smartknob.set_position: !lambda return id(${id}_value);
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - lambda: |-
+              id(${id}_value) = x;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+          - if:
+              condition:
+                lambda: return x == 1;
+              then:
+                - homeassistant.action:
+                    action: homeassistant.turn_on
+                    data:
+                      entity_id: ${entity}
+              else:
+                - homeassistant.action:
+                    action: homeassistant.turn_off
+                    data:
+                      entity_id: ${entity}
+  on_short_press:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - homeassistant.action:
+              action: homeassistant.toggle
+              data:
+                entity_id: ${entity}
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - smartknob.set_profile:
+            preset: on_off
+            position: !lambda return id(${id}_value);
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 100
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: ${color}
+        - label:
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "${name}"
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"

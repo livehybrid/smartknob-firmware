@@ -51,3 +51,9 @@ firmware/data/config.pb
 
 .cache/
 compile_commands.json
+
+# ESPHome
+esphome/secrets.yaml
+esphome/.esphome/
+esphome/tests/test_smartknob
+esphome/tests/*.o

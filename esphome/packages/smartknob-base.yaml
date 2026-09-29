@@ -1,0 +1,285 @@
+# SeedLabs SmartKnob Dev Kit: hardware, haptics, display, sensors.
+#
+# Include this first, then one package per page (see ../smartknob-devkit.yaml).
+# Pages come in the order their packages are listed. On the knob:
+#   turn         change the value on the current page
+#   short press  the page's action (toggle, play/pause...)
+#   long press   next page
+#
+# Pin map from the SeedLabs firmware (platformio.ini, env seedlabs_devkit).
+
+substitutions:
+  display_timeout: 30s
+  accent_color: "0xFF9F0A"
+
+esp32:
+  variant: esp32s3
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+# ------------------------------------------------------------------ haptics --
+
+smartknob:
+  id: knob
+  motor:
+    uh_pin: GPIO8
+    ul_pin: GPIO16
+    vh_pin: GPIO18
+    vl_pin: GPIO7
+    wh_pin: GPIO17
+    wl_pin: GPIO15
+    supply_voltage: 5V
+  encoder:
+    clk_pin: GPIO13
+    data_pin: GPIO14
+    cs_pin: GPIO11
+    spi_host: spi3
+  strain_gauge:
+    dout_pin: GPIO21
+    clk_pin: GPIO1
+    press_threshold: 30000
+    release_threshold: 15000
+  initial_profile:
+    preset: unbounded_detents
+  on_position_change:
+    - script.execute: wake_display
+  on_press:
+    - script.execute: wake_display
+  on_short_press:
+    - homeassistant.event:
+        event: esphome.smartknob
+        data:
+          type: short_press
+  on_long_press:
+    - smartknob.click:
+        strength: 2.0
+        duration: 10ms
+    - lvgl.page.next:
+    - homeassistant.event:
+        event: esphome.smartknob
+        data:
+          type: long_press
+  on_calibration:
+    - logger.log:
+        level: INFO
+        format: "Motor calibration %s"
+        args: ['success ? "succeeded" : "FAILED"']
+
+sensor:
+  - platform: smartknob
+    position:
+      name: Position
+    strain:
+      id: knob_strain
+      name: Press strain
+    loop_time:
+      name: Control loop max time
+      disabled_by_default: true
+
+  - platform: vl53l0x
+    id: proximity
+    name: Proximity
+    address: 0x29
+    update_interval: 500ms
+    long_range: false
+    entity_category: diagnostic
+    on_value:
+      - if:
+          condition:
+            lambda: return !std::isnan(x) && x < 0.12;
+          then:
+            - script.execute: wake_display
+
+  - platform: veml7700
+    # Faces the back of the knob, so it reads the room behind it.
+    ambient_light:
+      name: Ambient light
+      entity_category: diagnostic
+    update_interval: 30s
+
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 60s
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: smartknob
+    pressed:
+      id: knob_pressed
+      name: Pressed
+
+i2c:
+  sda: GPIO39
+  scl: GPIO38
+  frequency: 400kHz
+
+number:
+  # Press detection thresholds, in raw strain counts from the idle baseline.
+  # Watch "Press strain" while pressing to tune these.
+  - platform: template
+    id: press_threshold
+    name: Press threshold
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 30000
+    min_value: 1000
+    max_value: 500000
+    step: 500
+    mode: box
+    on_value:
+      - smartknob.set_press_thresholds:
+          press: !lambda return x;
+  - platform: template
+    id: release_threshold
+    name: Release threshold
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 15000
+    min_value: 500
+    max_value: 500000
+    step: 500
+    mode: box
+    on_value:
+      - smartknob.set_press_thresholds:
+          release: !lambda return x;
+
+button:
+  - platform: template
+    name: Calibrate motor
+    entity_category: config
+    on_press:
+      - smartknob.calibrate:
+  - platform: restart
+    name: Restart
+    entity_category: diagnostic
+  # Page navigation without the press sensor (useful before it is tuned).
+  - platform: template
+    name: Next page
+    entity_category: config
+    on_press:
+      - lvgl.page.next:
+
+switch:
+  - platform: template
+    id: haptics
+    name: Haptics
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - smartknob.set_haptics: true
+    turn_off_action:
+      - smartknob.set_haptics: false
+
+# ------------------------------------------------------------------ display --
+
+spi:
+  - id: display_spi
+    clk_pin: GPIO4
+    mosi_pin: GPIO3
+    interface: spi2  # the encoder has SPI3 to itself
+
+display:
+  - platform: mipi_spi
+    id: round_display
+    model: GC9A01A
+    spi_id: display_spi
+    cs_pin: GPIO9
+    dc_pin: GPIO2
+    reset_pin: GPIO10
+    invert_colors: true
+    data_rate: 40MHz
+    auto_clear_enabled: false
+    update_interval: never
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO5
+    frequency: 20kHz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Display backlight
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+    entity_category: config
+
+  - platform: esp32_rmt_led_strip
+    id: led_ring
+    name: LED ring
+    pin: GPIO12
+    num_leds: 72
+    chipset: WS2812
+    channel_colors: GRB
+    restore_mode: ALWAYS_OFF
+    effects:
+      - addressable_rainbow:
+      - addressable_scan:
+      - pulse:
+
+script:
+  # Backlight on, then off after display_timeout without activity.
+  - id: wake_display
+    mode: restart
+    then:
+      - if:
+          condition:
+            light.is_off: backlight
+          then:
+            - light.turn_on: backlight
+      - delay: ${display_timeout}
+      - light.turn_off:
+          id: backlight
+          transition_length: 1s
+
+lvgl:
+  id: ui
+  displays: [round_display]
+  buffer_size: 100%
+  bg_color: 0x000000
+  text_color: 0xFFFFFF
+  page_wrap: true
+  style_definitions:
+    - id: page_title
+      text_font: montserrat_18
+      text_color: 0xA0A0A0
+    - id: page_value
+      text_font: montserrat_48
+    - id: page_detail
+      text_font: montserrat_16
+      text_color: 0xA0A0A0
+  top_layer:
+    widgets:
+      # Shown while Home Assistant is not connected.
+      - label:
+          id: offline_label
+          align: TOP_MID
+          y: 14
+          text: "offline"
+          text_font: montserrat_14
+          text_color: 0xFF453A
+
+api:
+  on_client_connected:
+    - lvgl.widget.hide: offline_label
+  on_client_disconnected:
+    - if:
+        condition:
+          not:
+            api.connected:
+        then:
+          - lvgl.widget.show: offline_label

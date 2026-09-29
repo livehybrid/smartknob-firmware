@@ -1,0 +1,160 @@
+# Climate page: turn for the target temperature, press to toggle on/off.
+#
+# vars:
+#   id:       unique page id (letters, digits, underscores)
+#   entity:   climate entity, e.g. climate.living_room
+#   name:     title shown on the display
+#   min_temp: lowest target, °C (default 16)
+#   max_temp: highest target, °C (default 28)
+#   step:     target step, °C (default 0.5)
+#   color:    accent colour (default orange)
+
+defaults:
+  min_temp: "16"
+  max_temp: "28"
+  step: "0.5"
+  color: "0xFF6B2C"
+
+globals:
+  - id: ${id}_value # target temperature, °C
+    type: float
+    initial_value: "${min_temp}"
+  - id: ${id}_dirty
+    type: bool
+    initial_value: "false"
+  - id: ${id}_touched
+    type: uint32_t
+    initial_value: "0"
+
+sensor:
+  - platform: homeassistant
+    id: ${id}_ha_target
+    entity_id: ${entity}
+    attribute: temperature
+    internal: true
+    on_value:
+      - lambda: |-
+          if (millis() - id(${id}_touched) < 1500 || std::isnan(x)) return;
+          id(${id}_value) = x;
+      - script.execute: ${id}_show
+  - platform: homeassistant
+    id: ${id}_ha_current
+    entity_id: ${entity}
+    attribute: current_temperature
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_ha_state
+    entity_id: ${entity}
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda |-
+            return 100.0f * (id(${id}_value) - ${min_temp}) / (${max_temp} - ${min_temp});
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            if (id(${id}_ha_state).state == "unavailable") return std::string("--");
+            return str_sprintf("%.1f°", id(${id}_value));
+      - lvgl.label.update:
+          id: ${id}_detail
+          text: !lambda |-
+            const float now = id(${id}_ha_current).state;
+            const std::string &mode = id(${id}_ha_state).state;
+            if (std::isnan(now)) return mode;
+            return str_sprintf("%s  %.1f° now", mode.c_str(), now);
+      - if:
+          condition:
+            and:
+              - lvgl.page.is_showing: ${id}_page
+              - lambda: return millis() - id(${id}_touched) >= 1500;
+          then:
+            - smartknob.set_position: !lambda |-
+                return (int32_t) lroundf((id(${id}_value) - ${min_temp}) / ${step});
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - lambda: |-
+              id(${id}_value) = ${min_temp} + x * ${step};
+              id(${id}_dirty) = true;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+  on_short_press:
+    - if:
+        condition:
+          lvgl.page.is_showing: ${id}_page
+        then:
+          - homeassistant.action:
+              action: climate.toggle
+              data:
+                entity_id: ${entity}
+
+interval:
+  - interval: 250ms
+    then:
+      - if:
+          condition:
+            lambda: return id(${id}_dirty);
+          then:
+            - lambda: id(${id}_dirty) = false;
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: ${entity}
+                  temperature: !lambda return str_sprintf("%.1f", id(${id}_value));
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - smartknob.set_profile:
+            min_position: 0
+            max_position: !lambda return (int32_t) lroundf((${max_temp} - ${min_temp}) / ${step});
+            position_width: 10
+            detent_strength: 1.5
+            endstop_strength: 1.0
+            position: !lambda |-
+              return (int32_t) lroundf((id(${id}_value) - ${min_temp}) / ${step});
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 100
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: ${color}
+        - label:
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "${name}"
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            id: ${id}_detail
+            styles: page_detail
+            align: CENTER
+            y: 50
+            text: ""
