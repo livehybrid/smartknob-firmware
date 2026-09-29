@@ -1,0 +1,226 @@
+# Multi-room page: turn to browse a fixed set of three media_player rooms,
+# press to act on the one shown. Room 1 is the hub everything else joins
+# into (pressing it ungroups everyone); rooms 2 and 3 each toggle their own
+# membership in that hub's group. Needs entities that support Home
+# Assistant's standard join/unjoin (they report a group_members attribute
+# when they do).
+#
+# Doesn't read exact group membership on boot beyond what room 1's own
+# group_members attribute (a Python list) shows as a string: this page
+# checks whether each entity id appears as a substring of that string,
+# since ESPHome can't pull a list attribute in any more directly.
+#
+# vars:
+#   id:       unique page id (letters, digits, underscores)
+#   name:     title shown on the display
+#   entity_1: the hub room, e.g. media_player.kitchen
+#   label_1:  hub room's display name
+#   entity_2, label_2: second room
+#   entity_3, label_3: third room
+#   color:    accent colour (default purple)
+#   icon:     menu icon id (default menu_media; see packages/smartknob-base.yaml)
+
+defaults:
+  color: "0xBF5AF2"
+  icon: "menu_media"
+
+globals:
+  - id: ${id}_index # which room is shown: 0 = hub, 1 = room 2, 2 = room 3
+    type: int
+    initial_value: "0"
+  - id: ${id}_room2_in
+    type: bool
+    initial_value: "false"
+  - id: ${id}_room3_in
+    type: bool
+    initial_value: "false"
+  - id: ${id}_touched # millis() of the last knob change
+    type: uint32_t
+    initial_value: "0"
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_group_members
+    entity_id: ${entity_1}
+    attribute: group_members
+    internal: true
+    on_value:
+      - lambda: |-
+          if (millis() - id(${id}_touched) < 1500) return;
+          std::string s = x;
+          id(${id}_room2_in) = s.find("${entity_2}") != std::string::npos;
+          id(${id}_room3_in) = s.find("${entity_3}") != std::string::npos;
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda return id(${id}_index);
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            if (id(${id}_index) == 0) return std::string("${label_1}");
+            if (id(${id}_index) == 1) return std::string("${label_2}");
+            return std::string("${label_3}");
+      - lvgl.label.update:
+          id: ${id}_status
+          text: !lambda |-
+            if (id(${id}_index) == 0) return std::string("Press: ungroup");
+            bool in = id(${id}_index) == 1 ? id(${id}_room2_in) : id(${id}_room3_in);
+            return in ? std::string("In group") : std::string("Solo");
+      - if:
+          condition:
+            lvgl.page.is_showing: ${id}_page
+          then:
+            - light.addressable_set:
+                id: led_ring
+                range_from: 0
+                range_to: 23
+                red: !lambda return ((${color} >> 16) & 0xFF) / 255.0f;
+                green: !lambda return ((${color} >> 8) & 0xFF) / 255.0f;
+                blue: !lambda return (${color} & 0xFF) / 255.0f;
+            - light.addressable_set:
+                id: led_ring
+                range_from: 24
+                range_to: 47
+                red: !lambda |-
+                  return id(${id}_room2_in) ? ((${color} >> 16) & 0xFF) / 255.0f : 0.0f;
+                green: !lambda |-
+                  return id(${id}_room2_in) ? ((${color} >> 8) & 0xFF) / 255.0f : 0.0f;
+                blue: !lambda |-
+                  return id(${id}_room2_in) ? (${color} & 0xFF) / 255.0f : 0.0f;
+            - light.addressable_set:
+                id: led_ring
+                range_from: 48
+                range_to: 71
+                red: !lambda |-
+                  return id(${id}_room3_in) ? ((${color} >> 16) & 0xFF) / 255.0f : 0.0f;
+                green: !lambda |-
+                  return id(${id}_room3_in) ? ((${color} >> 8) & 0xFF) / 255.0f : 0.0f;
+                blue: !lambda |-
+                  return id(${id}_room3_in) ? (${color} & 0xFF) / 255.0f : 0.0f;
+  - id: ${id}_apply
+    then:
+      - if:
+          condition:
+            lambda: return id(${id}_room2_in) || id(${id}_room3_in);
+          then:
+            - homeassistant.action:
+                action: media_player.join
+                data:
+                  entity_id: ${entity_1}
+                  group_members: !lambda |-
+                    std::string s = "[\"${entity_1}\"";
+                    if (id(${id}_room2_in)) s += ", \"${entity_2}\"";
+                    if (id(${id}_room3_in)) s += ", \"${entity_3}\"";
+                    s += "]";
+                    return s;
+          else:
+            - homeassistant.action:
+                action: media_player.unjoin
+                data:
+                  entity_id: ${entity_1}
+      - if:
+          condition:
+            lambda: return !id(${id}_room2_in);
+          then:
+            - homeassistant.action:
+                action: media_player.unjoin
+                data:
+                  entity_id: ${entity_2}
+      - if:
+          condition:
+            lambda: return !id(${id}_room3_in);
+          then:
+            - homeassistant.action:
+                action: media_player.unjoin
+                data:
+                  entity_id: ${entity_3}
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
+        then:
+          - lambda: |-
+              id(${id}_index) = x;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+  on_short_press:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
+        then:
+          - lambda: |-
+              if (id(${id}_index) == 0) {
+                id(${id}_room2_in) = false;
+                id(${id}_room3_in) = false;
+              } else if (id(${id}_index) == 1) {
+                id(${id}_room2_in) = !id(${id}_room2_in);
+              } else {
+                id(${id}_room3_in) = !id(${id}_room3_in);
+              }
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+          - script.execute: ${id}_apply
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  min_position: 0
+                  max_position: 2
+                  position_width: 24
+                  detent_strength: 1.0
+                  endstop_strength: 1.0
+                  position: !lambda return id(${id}_index);
+              - script.execute: ${id}_show
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 2
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: ${color}
+        - label:
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "${name}"
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            id: ${id}_status
+            styles: page_detail
+            align: CENTER
+            y: 50
+            text: ""

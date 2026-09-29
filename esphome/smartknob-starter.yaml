@@ -83,6 +83,17 @@ packages:
       id: speakers
       entity: media_player.diningroom
       name: Dining Room
+  multiroom: !include
+    file: packages/page-media-group.yaml
+    vars:
+      id: multiroom
+      name: Multi-room
+      entity_1: media_player.kitchen_kitchen
+      label_1: Kitchen
+      entity_2: media_player.bar_bar
+      label_2: Bar
+      entity_3: media_player.diningroom
+      label_3: Dining Room
   small_blind: !include
     file: packages/page-cover.yaml
     vars:
