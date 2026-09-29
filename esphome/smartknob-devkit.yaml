@@ -36,7 +36,7 @@ ota:
 # Replace the entity IDs with your own (the ones below are placeholders).
 packages:
   base: !include packages/smartknob-base.yaml
-  setup: !include packages/page-setup.yaml
+  settings: !include packages/page-settings.yaml
   desk_lamp: !include
     file: packages/page-light.yaml
     vars:

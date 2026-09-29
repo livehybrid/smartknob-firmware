@@ -1,0 +1,263 @@
+# Settings page: edit the everyday config entities from the knob itself,
+# instead of only from Home Assistant. Turn to browse, press a number or
+# select entry to edit it (turn to adjust, press again to save), press a
+# switch entry to toggle it immediately. Every change here writes straight
+# to the same number/select/switch entities Home Assistant sees, so both
+# sides always agree.
+#
+# Unlike the other page-*.yaml files, this one isn't a reusable template -
+# it's tied directly to the specific config entities defined in
+# smartknob-base.yaml, so it takes no vars.
+#
+# Items, in browse order:
+#   0 Screensaver          (select: screensaver_mode)
+#   1 Screen brightness    (number: screensaver_brightness, 1-100%)
+#   2 Active timeout       (number: active_timeout, 5-600s)
+#   3 Notify duration      (number: notify_duration, 3-60s)
+#   4 Haptics              (switch: haptics)
+#   5 Auto brightness      (switch: auto_brightness)
+# The ranges above are duplicated from each entity's own min/max in
+# smartknob-base.yaml - if those change, update settings_apply_profile too.
+
+globals:
+  - id: settings_index # which item is shown, 0..5
+    type: int
+    initial_value: "0"
+  - id: settings_editing
+    type: bool
+    initial_value: "false"
+
+script:
+  - id: settings_apply_profile
+    then:
+      - smartknob.set_profile:
+          min_position: !lambda |-
+            if (!id(settings_editing)) return 0;
+            switch (id(settings_index)) {
+              case 0: return 0;
+              case 1: return 1;
+              case 2: return 5;
+              case 3: return 3;
+              default: return 0;
+            }
+          max_position: !lambda |-
+            if (!id(settings_editing)) return 5;
+            switch (id(settings_index)) {
+              case 0: return 2;
+              case 1: return 100;
+              case 2: return 600;
+              case 3: return 60;
+              default: return 5;
+            }
+          position_width: !lambda |-
+            if (!id(settings_editing)) return 16;
+            switch (id(settings_index)) {
+              case 0: return 40;
+              case 1: return 3;
+              case 2: return 1;
+              case 3: return 4;
+              default: return 16;
+            }
+          detent_strength: 1.0
+          endstop_strength: 1.0
+          position: !lambda |-
+            if (!id(settings_editing)) return id(settings_index);
+            switch (id(settings_index)) {
+              case 0: {
+                std::string opt = id(screensaver_mode).current_option();
+                if (opt == "Off") return 0;
+                if (opt == "Dim clock") return 1;
+                return 2;
+              }
+              case 1: return (int) id(screensaver_brightness).state;
+              case 2: return (int) id(active_timeout).state;
+              case 3: return (int) id(notify_duration).state;
+              default: return 0;
+            }
+
+  - id: settings_show
+    then:
+      - lvgl.arc.update:
+          id: settings_arc
+          value: !lambda return id(settings_index);
+          indicator:
+            arc_color: !lambda |-
+              return id(settings_editing) ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x5E5CE6);
+      - lvgl.label.update:
+          id: settings_name
+          text: !lambda |-
+            switch (id(settings_index)) {
+              case 0: return std::string("Screensaver");
+              case 1: return std::string("Screen brightness");
+              case 2: return std::string("Active timeout");
+              case 3: return std::string("Notify duration");
+              case 4: return std::string("Haptics");
+              default: return std::string("Auto brightness");
+            }
+      - lvgl.label.update:
+          id: settings_value
+          text: !lambda |-
+            switch (id(settings_index)) {
+              case 0: return id(screensaver_mode).current_option();
+              case 1: return str_sprintf("%.0f%%", id(screensaver_brightness).state);
+              case 2: return str_sprintf("%.0fs", id(active_timeout).state);
+              case 3: return str_sprintf("%.0fs", id(notify_duration).state);
+              case 4: return std::string(id(haptics).state ? "On" : "Off");
+              default: return std::string(id(auto_brightness).state ? "On" : "Off");
+            }
+      - lvgl.label.update:
+          id: settings_hint
+          text: !lambda |-
+            if (id(settings_index) >= 4) return std::string("press to toggle");
+            return id(settings_editing) ? std::string("turn, press to save") : std::string("press to edit");
+      - if:
+          condition:
+            lvgl.page.is_showing: settings_page
+          then:
+            - if:
+                condition:
+                  lambda: return id(settings_index) == 4;
+                then:
+                  - script.execute:
+                      id: led_ring_show_value
+                      percent: !lambda |-
+                        return id(haptics).state ? 1.0f : 0.0f;
+                      color: 0x5E5CE6
+                else:
+                  - if:
+                      condition:
+                        lambda: return id(settings_index) == 5;
+                      then:
+                        - script.execute:
+                            id: led_ring_show_value
+                            percent: !lambda |-
+                              return id(auto_brightness).state ? 1.0f : 0.0f;
+                            color: 0x5E5CE6
+                      else:
+                        - if:
+                            condition:
+                              lambda: return id(settings_editing);
+                            then:
+                              - script.execute:
+                                  id: led_ring_show_value
+                                  percent: !lambda |-
+                                    switch (id(settings_index)) {
+                                      case 0: {
+                                        std::string opt = id(screensaver_mode).current_option();
+                                        if (opt == "Off") return 0.0f;
+                                        if (opt == "Dim clock") return 0.5f;
+                                        return 1.0f;
+                                      }
+                                      case 1: return (id(screensaver_brightness).state - 1.0f) / 99.0f;
+                                      case 2: return (id(active_timeout).state - 5.0f) / 595.0f;
+                                      default: return (id(notify_duration).state - 3.0f) / 57.0f;
+                                    }
+                                  color: 0x5E5CE6
+                            else:
+                              - light.addressable_set:
+                                  id: led_ring
+                                  range_from: 0
+                                  range_to: 71
+                                  red: 0%
+                                  green: 0%
+                                  blue: 0%
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: settings_page
+            - lambda: return !id(menu_open) && !id(notify_active);
+        then:
+          - lambda: |-
+              if (!id(settings_editing)) {
+                id(settings_index) = x;
+              } else {
+                switch (id(settings_index)) {
+                  case 0: {
+                    int opt = ((x % 3) + 3) % 3;
+                    const char *opts[3] = {"Off", "Dim clock", "Clock then blank"};
+                    id(screensaver_mode).make_call().set_option(opts[opt]).perform();
+                    break;
+                  }
+                  case 1:
+                    id(screensaver_brightness).make_call().set_value(x).perform();
+                    break;
+                  case 2:
+                    id(active_timeout).make_call().set_value(x).perform();
+                    break;
+                  case 3:
+                    id(notify_duration).make_call().set_value(x).perform();
+                    break;
+                  default:
+                    break;
+                }
+              }
+          - script.execute: settings_show
+  on_short_press:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: settings_page
+            - lambda: return !id(menu_open) && !id(notify_active);
+        then:
+          - lambda: |-
+              if (id(settings_index) == 4) {
+                id(haptics).toggle();
+              } else if (id(settings_index) == 5) {
+                id(auto_brightness).toggle();
+              } else {
+                id(settings_editing) = !id(settings_editing);
+              }
+          - script.execute: settings_apply_profile
+          - script.execute: settings_show
+
+lvgl:
+  pages:
+    - id: settings_page
+      on_load:
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: menu_setup
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "Settings"
+            else:
+              - lambda: id(settings_editing) = false;
+              - script.execute: settings_apply_profile
+              - script.execute: settings_show
+      widgets:
+        - arc:
+            id: settings_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 5
+            value: 0
+            arc_width: 6
+            indicator:
+              arc_width: 6
+              arc_color: 0x5E5CE6
+        - label:
+            id: settings_name
+            styles: page_title
+            align: CENTER
+            y: -52
+            text: "Settings"
+        - label:
+            id: settings_value
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            id: settings_hint
+            styles: page_detail
+            align: CENTER
+            y: 50
+            text: ""

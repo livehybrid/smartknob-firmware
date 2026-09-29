@@ -40,7 +40,7 @@ ota:
 
 packages:
   base: !include packages/smartknob-base.yaml
-  setup: !include packages/page-setup.yaml
+  settings: !include packages/page-settings.yaml
   bar_light: !include
     file: packages/page-light.yaml
     vars:
