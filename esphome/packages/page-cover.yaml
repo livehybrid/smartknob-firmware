@@ -1,17 +1,31 @@
 # Cover page: turn for position, press to open/close (or stop while moving).
+# Also used for tilt: override attribute/service/data_key/toggle to drive a
+# cover's tilt instead of its position (see vars below).
 #
 # vars:
-#   id:     unique page id (letters, digits, underscores)
-#   entity: cover entity, e.g. cover.office_blind
-#   name:   title shown on the display
-#   step:   position step in percent, must divide 100 (default 5)
-#   color:  accent colour (default blue)
-#   icon:   menu icon id (default menu_cover; see packages/smartknob-base.yaml)
+#   id:        unique page id (letters, digits, underscores)
+#   entity:    cover entity, e.g. cover.office_blind
+#   name:      title shown on the display
+#   step:      position step in percent, must divide 100 (default 5)
+#   color:     accent colour (default blue)
+#   icon:      menu icon id (default menu_cover; see packages/smartknob-base.yaml)
+#   attribute: HA attribute to read the current value from (default current_position;
+#              use current_tilt_position for a tilt page)
+#   service:   HA service to call to set the value (default cover.set_cover_position;
+#              use cover.set_cover_tilt_position for a tilt page)
+#   data_key:  service data key for the value (default position; use tilt_position
+#              for a tilt page)
+#   toggle:    whether press opens/closes the cover (default true; set to false on
+#              a tilt page for the same entity so both pages don't fight over it)
 
 defaults:
   step: "5"
   color: "0x0A84FF"
   icon: "menu_cover"
+  attribute: "current_position"
+  service: "cover.set_cover_position"
+  data_key: "position"
+  toggle: "true"
 
 globals:
   - id: ${id}_value # position in percent, 100 = open
@@ -28,7 +42,7 @@ sensor:
   - platform: homeassistant
     id: ${id}_ha_position
     entity_id: ${entity}
-    attribute: current_position
+    attribute: ${attribute}
     internal: true
     on_value:
       - lambda: |-
@@ -93,6 +107,7 @@ smartknob:
           and:
             - lvgl.page.is_showing: ${id}_page
             - lambda: return !id(menu_open);
+            - lambda: return ${toggle};
         then:
           - homeassistant.action:
               action: cover.toggle
@@ -108,10 +123,10 @@ interval:
           then:
             - lambda: id(${id}_dirty) = false;
             - homeassistant.action:
-                action: cover.set_cover_position
+                action: ${service}
                 data:
                   entity_id: ${entity}
-                  position: !lambda return id(${id}_value);
+                  ${data_key}: !lambda return id(${id}_value);
 
 lvgl:
   pages:

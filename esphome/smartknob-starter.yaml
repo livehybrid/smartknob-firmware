@@ -41,33 +41,85 @@ ota:
 packages:
   base: !include packages/smartknob-base.yaml
   setup: !include packages/page-setup.yaml
-  desk_lamp: !include
+  bar_light: !include
     file: packages/page-light.yaml
     vars:
-      id: desk_lamp
-      entity: light.desk_lamp
-      name: Desk lamp
+      id: bar_light
+      entity: light.dimmer_bar
+      name: Bar Light
+  kitchen_light: !include
+    file: packages/page-light.yaml
+    vars:
+      id: kitchen_light
+      entity: light.dimmer_kitchen
+      name: Kitchen Light
+  wled1_brightness: !include
+    file: packages/page-light.yaml
+    vars:
+      id: wled1_brightness
+      entity: light.wledkitchen1
+      name: WLED 1 Brightness
+  wled1_color: !include
+    file: packages/page-light-color.yaml
+    vars:
+      id: wled1_color
+      entity: light.wledkitchen1
+      name: WLED 1 Colour
+  wled2_brightness: !include
+    file: packages/page-light.yaml
+    vars:
+      id: wled2_brightness
+      entity: light.wledkitchen2
+      name: WLED 2 Brightness
+  wled2_color: !include
+    file: packages/page-light-color.yaml
+    vars:
+      id: wled2_color
+      entity: light.wledkitchen2
+      name: WLED 2 Colour
   speakers: !include
     file: packages/page-media-volume.yaml
     vars:
       id: speakers
-      entity: media_player.living_room
-      name: Speakers
-  heating: !include
-    file: packages/page-climate.yaml
-    vars:
-      id: heating
-      entity: climate.living_room
-      name: Heating
-  blind: !include
+      entity: media_player.diningroom
+      name: Dining Room
+  small_blind: !include
     file: packages/page-cover.yaml
     vars:
-      id: blind
-      entity: cover.office_blind
-      name: Blind
-  desk_fan: !include
+      id: small_blind
+      entity: cover.smallblind
+      name: Small Blind
+  small_blind_tilt: !include
+    file: packages/page-cover.yaml
+    vars:
+      id: small_blind_tilt
+      entity: cover.smallblind
+      name: Small Blind Tilt
+      color: "0x64D2FF"
+      attribute: current_tilt_position
+      service: cover.set_cover_tilt_position
+      data_key: tilt_position
+      toggle: "false"
+  big_blind: !include
+    file: packages/page-cover.yaml
+    vars:
+      id: big_blind
+      entity: cover.bigdoor
+      name: Big Blind
+  big_blind_tilt: !include
+    file: packages/page-cover.yaml
+    vars:
+      id: big_blind_tilt
+      entity: cover.bigdoor
+      name: Big Blind Tilt
+      color: "0x64D2FF"
+      attribute: current_tilt_position
+      service: cover.set_cover_tilt_position
+      data_key: tilt_position
+      toggle: "false"
+  coffee_machine: !include
     file: packages/page-switch.yaml
     vars:
-      id: desk_fan
-      entity: switch.desk_fan
-      name: Desk fan
+      id: coffee_machine
+      entity: switch.coffeemachine
+      name: Coffee Machine

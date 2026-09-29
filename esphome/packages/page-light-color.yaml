@@ -1,0 +1,175 @@
+# RGB colour page: turn for hue (full saturation/brightness), press to
+# toggle. Pairs with page-light.yaml for the same entity so brightness and
+# colour each get their own page in the rotation — no new gesture needed,
+# just long-press through to the other one, same as any two pages.
+#
+# Doesn't read the current colour back from Home Assistant: HA reports it
+# as a list (hs_color/rgb_color), and ESPHome's homeassistant.sensor only
+# takes single numeric attributes. Turning always starts from the last hue
+# this page sent, not whatever colour the light is actually showing.
+#
+# vars:
+#   id:     unique page id (letters, digits, underscores)
+#   entity: light entity, e.g. light.kitchen_wled
+#   name:   title shown on the display
+#   step:   degrees per detent, must divide 360 (default 5; 72 detents to
+#           match the 72-LED ring, one full physical turn = one full hue loop)
+#   icon:   menu icon id (default menu_light; see packages/smartknob-base.yaml)
+
+defaults:
+  step: "5"
+  icon: "menu_light"
+
+globals:
+  - id: ${id}_hue # degrees, 0..359
+    type: int
+    initial_value: "0"
+  - id: ${id}_r
+    type: float
+    initial_value: "1.0"
+  - id: ${id}_g
+    type: float
+    initial_value: "0.0"
+  - id: ${id}_b
+    type: float
+    initial_value: "0.0"
+  - id: ${id}_dirty # changed on the knob, not yet sent
+    type: bool
+    initial_value: "false"
+  - id: ${id}_touched # millis() of the last knob change
+    type: uint32_t
+    initial_value: "0"
+
+text_sensor:
+  - platform: homeassistant
+    id: ${id}_ha_state
+    entity_id: ${entity}
+    internal: true
+    on_value:
+      - script.execute: ${id}_show
+
+script:
+  - id: ${id}_show
+    then:
+      - lvgl.arc.update:
+          id: ${id}_arc
+          value: !lambda return id(${id}_hue);
+      - lvgl.label.update:
+          id: ${id}_label
+          text: !lambda |-
+            if (id(${id}_ha_state).state == "unavailable") return std::string("--");
+            if (id(${id}_ha_state).state != "on") return std::string("Off");
+            return str_sprintf("%d°", id(${id}_hue));
+      - if:
+          condition:
+            lvgl.page.is_showing: ${id}_page
+          then:
+            - light.addressable_set:
+                id: led_ring
+                range_from: 0
+                range_to: 71
+                red: !lambda return id(${id}_r);
+                green: !lambda return id(${id}_g);
+                blue: !lambda return id(${id}_b);
+
+smartknob:
+  on_position_change:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
+        then:
+          - lambda: |-
+              int deg = (((int) x * ${step}) % 360 + 360) % 360;
+              id(${id}_hue) = deg;
+              float hp = deg / 60.0f;
+              float c = 1.0f;
+              float xx = c * (1.0f - fabsf(fmodf(hp, 2.0f) - 1.0f));
+              float r = 0, g = 0, b = 0;
+              if (hp < 1) { r = c; g = xx; }
+              else if (hp < 2) { r = xx; g = c; }
+              else if (hp < 3) { g = c; b = xx; }
+              else if (hp < 4) { g = xx; b = c; }
+              else if (hp < 5) { r = xx; b = c; }
+              else { r = c; b = xx; }
+              id(${id}_r) = r;
+              id(${id}_g) = g;
+              id(${id}_b) = b;
+              id(${id}_dirty) = true;
+              id(${id}_touched) = millis();
+          - script.execute: ${id}_show
+  on_short_press:
+    - if:
+        condition:
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
+        then:
+          - homeassistant.action:
+              action: light.toggle
+              data:
+                entity_id: ${entity}
+
+interval:
+  # At most four updates a second while turning; the last value always goes out.
+  - interval: 250ms
+    then:
+      - if:
+          condition:
+            lambda: return id(${id}_dirty);
+          then:
+            - lambda: id(${id}_dirty) = false;
+            - homeassistant.action:
+                action: light.turn_on
+                data:
+                  entity_id: ${entity}
+                  rgb_color: !lambda |-
+                    int r = (int) roundf(id(${id}_r) * 255.0f);
+                    int g = (int) roundf(id(${id}_g) * 255.0f);
+                    int b = (int) roundf(id(${id}_b) * 255.0f);
+                    return str_sprintf("[%d, %d, %d]", r, g, b);
+
+lvgl:
+  pages:
+    - id: ${id}_page
+      on_load:
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  preset: unbounded_detents
+                  position: !lambda return id(${id}_hue) / ${step};
+              - script.execute: ${id}_show
+      widgets:
+        - arc:
+            id: ${id}_arc
+            align: CENTER
+            width: 232
+            height: 232
+            min_value: 0
+            max_value: 359
+            value: 0
+            arc_width: 14
+            arc_color: 0x262626
+            indicator:
+              arc_width: 14
+              arc_color: 0xFFFFFF
+        - label:
+            id: ${id}_label
+            styles: page_value
+            align: CENTER
+            text: "--"
+        - label:
+            styles: page_title
+            align: CENTER
+            y: 50
+            text: "${name}"
