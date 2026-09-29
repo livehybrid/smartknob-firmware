@@ -523,9 +523,17 @@ script:
       - lambda: id(screensaver_active) = false;
       - lvgl.widget.hide: screensaver_overlay
       - script.execute: apply_auto_brightness
-      - light.turn_on:
-          id: led_ring
-          transition_length: 0s
+      # Only wake the ring if it's actually asleep: a bare turn_on (no
+      # colour) fills the whole strip white, which on every single call
+      # (every turn, every proximity ping) was stomping the addressable
+      # per-pixel value arc a moment after it was painted.
+      - if:
+          condition:
+            light.is_off: led_ring
+          then:
+            - light.turn_on:
+                id: led_ring
+                transition_length: 0s
       - delay: !lambda return (uint32_t) (id(active_timeout).state * 1000.0f);
       - if:
           condition:
@@ -735,12 +743,21 @@ lvgl:
                 text_font: montserrat_18
                 text_color: 0xFFFFFF
                 text: ""
+            # Split across two short lines and kept off the bottom of the
+            # display: on a round panel, one long line at this height runs
+            # past the visible circle and gets clipped.
             - label:
                 align: CENTER
-                y: 55
+                y: 42
                 text_font: montserrat_14
                 text_color: 0xA0A0A0
-                text: "turn to browse, press to select"
+                text: "turn to browse"
+            - label:
+                align: CENTER
+                y: 62
+                text_font: montserrat_14
+                text_color: 0xA0A0A0
+                text: "press to select"
 
 api:
   on_client_connected:
