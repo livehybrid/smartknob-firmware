@@ -98,7 +98,7 @@ smartknob:
         condition:
           and:
             - lvgl.page.is_showing: ${id}_page
-            - lambda: return !id(menu_open);
+            - lambda: return !id(menu_open) && !id(notify_active);
         then:
           - lambda: |-
               id(${id}_value) = ${min_temp} + x * ${step};
@@ -110,7 +110,7 @@ smartknob:
         condition:
           and:
             - lvgl.page.is_showing: ${id}_page
-            - lambda: return !id(menu_open);
+            - lambda: return !id(menu_open) && !id(notify_active);
         then:
           - homeassistant.action:
               action: climate.toggle

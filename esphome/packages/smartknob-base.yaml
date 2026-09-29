@@ -77,28 +77,42 @@ smartknob:
           - lambda: id(menu_last_position) = x;
   on_press:
     - script.execute: wake_display
+    - if:
+        condition:
+          lambda: return id(notify_active);
+        then:
+          - script.execute: dismiss_notify
   on_short_press:
     - if:
         condition:
-          lambda: return id(menu_open);
+          lambda: return id(notify_active);
         then:
-          # Confirm: close the menu on the page just browsed to. A
-          # next-then-previous bounce re-fires that page's own on_load,
-          # which restores its real haptic profile (the menu's is generic).
-          - lambda: id(menu_open) = false;
-          - lvgl.widget.hide: menu_overlay
-          - lvgl.page.next:
-              time: 0ms
-          - lvgl.page.previous:
-              time: 0ms
-          - smartknob.click:
-              strength: 1.5
-              duration: 8ms
+          # Dismiss only: the notification consumes this press, the page
+          # underneath doesn't also react to it (see notify_active in every
+          # page's on_position_change/on_short_press guard).
+          - script.execute: dismiss_notify
         else:
-          - homeassistant.event:
-              event: esphome.smartknob
-              data:
-                type: short_press
+          - if:
+              condition:
+                lambda: return id(menu_open);
+              then:
+                # Confirm: close the menu on the page just browsed to. A
+                # next-then-previous bounce re-fires that page's own on_load,
+                # which restores its real haptic profile (the menu's is generic).
+                - lambda: id(menu_open) = false;
+                - lvgl.widget.hide: menu_overlay
+                - lvgl.page.next:
+                    time: 0ms
+                - lvgl.page.previous:
+                    time: 0ms
+                - smartknob.click:
+                    strength: 1.5
+                    duration: 8ms
+              else:
+                - homeassistant.event:
+                    event: esphome.smartknob
+                    data:
+                      type: short_press
   on_long_press:
     - smartknob.click:
         strength: 2.0
@@ -259,6 +273,21 @@ number:
     unit_of_measurement: "%"
     mode: box
 
+  # How long an alert (see the notify service) stays on screen before it's
+  # automatically dismissed.
+  - platform: template
+    id: notify_duration
+    name: Notification duration
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 8
+    min_value: 3
+    max_value: 60
+    step: 1
+    unit_of_measurement: s
+    mode: box
+
   # How close (metres) counts as "approaching", for both the Presence
   # sensor and (if enabled) waking the display.
   - platform: template
@@ -389,6 +418,9 @@ time:
 
 globals:
   - id: screensaver_active
+    type: bool
+    initial_value: "false"
+  - id: notify_active
     type: bool
     initial_value: "false"
   - id: menu_open
@@ -566,6 +598,48 @@ script:
                   - light.turn_off:
                       id: backlight
                       transition_length: 1s
+
+  # Shows an alert over whatever's on screen, forcing the display and LED
+  # ring fully awake regardless of the screensaver, until notify_duration
+  # elapses or a press dismisses it early (see on_press/on_short_press
+  # above, and notify_active in every page's own gesture guards). Called
+  # by the "notify" API service exposed to Home Assistant below.
+  - id: show_notify
+    mode: restart
+    parameters:
+      title: string
+      message: string
+    then:
+      - lambda: id(notify_active) = true;
+      - script.execute: wake_display
+      - lvgl.label.update:
+          id: notify_title
+          text: !lambda return title;
+      - lvgl.label.update:
+          id: notify_message
+          text: !lambda return message;
+      - lvgl.widget.show: notify_overlay
+      - light.addressable_set:
+          id: led_ring
+          range_from: 0
+          range_to: 71
+          red: 100%
+          green: 27%
+          blue: 23%
+      - smartknob.click:
+          strength: 2.5
+          duration: 15ms
+      - delay: 150ms
+      - smartknob.click:
+          strength: 2.5
+          duration: 15ms
+      - delay: !lambda return (uint32_t) (id(notify_duration).state * 1000.0f);
+      - script.execute: dismiss_notify
+
+  - id: dismiss_notify
+    then:
+      - lambda: id(notify_active) = false;
+      - lvgl.widget.hide: notify_overlay
 
   # Refreshes the screensaver's clock, date and weather text. Called on
   # every minute, every weather update, and right before the overlay is
@@ -758,6 +832,46 @@ lvgl:
                 text_font: montserrat_14
                 text_color: 0xA0A0A0
                 text: "press to select"
+      # Alert overlay: shown by the "notify" API service below (see
+      # show_notify/dismiss_notify). Covers everything, including the
+      # screensaver and the menu, until dismissed.
+      - obj:
+          id: notify_overlay
+          hidden: true
+          width: 240
+          height: 240
+          align: CENTER
+          radius: 0
+          border_width: 0
+          bg_color: 0xFF453A
+          bg_opa: COVER
+          widgets:
+            - label:
+                id: notify_title
+                align: CENTER
+                y: -30
+                width: 180
+                long_mode: WRAP
+                text_align: CENTER
+                text_font: montserrat_18
+                text_color: 0xFFFFFF
+                text: ""
+            - label:
+                id: notify_message
+                align: CENTER
+                y: 10
+                width: 180
+                long_mode: WRAP
+                text_align: CENTER
+                text_font: montserrat_14
+                text_color: 0xFFFFFF
+                text: ""
+            - label:
+                align: CENTER
+                y: 62
+                text_font: montserrat_14
+                text_color: 0xFFFFFF
+                text: "press to dismiss"
 
 api:
   on_client_connected:
@@ -769,3 +883,16 @@ api:
             api.connected:
         then:
           - lvgl.widget.show: offline_label
+  services:
+    # Calling esphome.<device>_notify from Home Assistant shows title and
+    # message as a full-screen alert until notify_duration elapses or the
+    # knob is pressed, overriding the screensaver and whatever page is up.
+    - service: notify
+      variables:
+        title: string
+        message: string
+      then:
+        - script.execute:
+            id: show_notify
+            title: !lambda return title;
+            message: !lambda return message;

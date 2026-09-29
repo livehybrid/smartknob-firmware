@@ -78,7 +78,7 @@ smartknob:
         condition:
           and:
             - lvgl.page.is_showing: ${id}_page
-            - lambda: return !id(menu_open);
+            - lambda: return !id(menu_open) && !id(notify_active);
         then:
           - lambda: |-
               int deg = (((int) x * ${step}) % 360 + 360) % 360;
@@ -104,7 +104,7 @@ smartknob:
         condition:
           and:
             - lvgl.page.is_showing: ${id}_page
-            - lambda: return !id(menu_open);
+            - lambda: return !id(menu_open) && !id(notify_active);
         then:
           - homeassistant.action:
               action: light.toggle
