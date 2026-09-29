@@ -48,6 +48,11 @@ smartknob:
     clk_pin: GPIO1
     press_threshold: 30000
     release_threshold: 15000
+    # Pressing down on this unit disturbs the encoder enough to read as a
+    # fast spin (confirmed: disabling this gate made every press register).
+    # Raised well above normal turning speed so a real press isn't caught
+    # by the fast-spin lockout, while still catching genuine fast spins.
+    max_velocity: 40
   initial_profile:
     preset: unbounded_detents
   on_position_change:
@@ -102,8 +107,22 @@ sensor:
   - platform: veml7700
     # Faces the back of the knob, so it reads the room behind it.
     ambient_light:
+      id: ambient_light
       name: Ambient light
       entity_category: diagnostic
+      on_value:
+        - if:
+            condition:
+              switch.is_on: auto_brightness
+            then:
+              - light.turn_on:
+                  id: backlight
+                  brightness: !lambda |-
+                    // The sensor faces backward (away from the room), so it
+                    // reads well below the room's actual light level. Floor
+                    // 25%, full brightness by ~60 lx on the sensor.
+                    return clamp(0.25f + x / 80.0f, 0.25f, 1.0f);
+                  transition_length: 2s
     update_interval: 30s
 
   - platform: wifi_signal
@@ -116,6 +135,14 @@ binary_sensor:
     pressed:
       id: knob_pressed
       name: Pressed
+
+  - platform: template
+    name: Presence
+    device_class: occupancy
+    lambda: |-
+      return !std::isnan(id(proximity).state) && id(proximity).state < 0.15f;
+    filters:
+      - delayed_off: 2s
 
 i2c:
   sda: GPIO39
@@ -182,6 +209,13 @@ switch:
     turn_off_action:
       - smartknob.set_haptics: false
 
+  - platform: template
+    id: auto_brightness
+    name: Auto brightness
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
 # ------------------------------------------------------------------ display --
 
 spi:
@@ -232,7 +266,7 @@ light:
       - pulse:
 
 script:
-  # Backlight on, then off after display_timeout without activity.
+  # Backlight (and LED ring) on, then off after display_timeout without activity.
   - id: wake_display
     mode: restart
     then:
@@ -241,10 +275,52 @@ script:
             light.is_off: backlight
           then:
             - light.turn_on: backlight
+            - light.turn_on:
+                id: led_ring
+                transition_length: 0s
       - delay: ${display_timeout}
       - light.turn_off:
           id: backlight
           transition_length: 1s
+      - light.turn_off:
+          id: led_ring
+          transition_length: 1s
+
+  # Called by each page to show its value as a lit arc on the physical LED
+  # ring (0 = LED 0, clockwise), in the page's own accent colour. Assumes
+  # led_ring is already on (wake_display turns it on/off with the display).
+  - id: led_ring_show_value
+    mode: restart
+    parameters:
+      percent: float  # 0..1
+      color: int      # packed 0xRRGGBB
+    then:
+      # range_to is the last LED INDEX to include (inclusive), not a count:
+      # lit_count LEDs means indices 0..lit_count-1, so the two calls below
+      # must never pass an out-of-range index or ESPHome silently resets it
+      # to 0, which at 100% wiped the whole ring instead of clearing nothing.
+      - if:
+          condition:
+            lambda: return ((int) roundf(clamp(percent, 0.0f, 1.0f) * 72.0f)) > 0;
+          then:
+            - light.addressable_set:
+                id: led_ring
+                range_from: 0
+                range_to: !lambda return ((int) roundf(clamp(percent, 0.0f, 1.0f) * 72.0f)) - 1;
+                red: !lambda return ((color >> 16) & 0xFF) / 255.0f;
+                green: !lambda return ((color >> 8) & 0xFF) / 255.0f;
+                blue: !lambda return (color & 0xFF) / 255.0f;
+      - if:
+          condition:
+            lambda: return ((int) roundf(clamp(percent, 0.0f, 1.0f) * 72.0f)) < 72;
+          then:
+            - light.addressable_set:
+                id: led_ring
+                range_from: !lambda return (int) roundf(clamp(percent, 0.0f, 1.0f) * 72.0f);
+                range_to: 71
+                red: 0%
+                green: 0%
+                blue: 0%
 
 lvgl:
   id: ui

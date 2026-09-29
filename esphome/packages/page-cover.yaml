@@ -58,6 +58,14 @@ script:
           text: !lambda return id(${id}_ha_state).state;
       - if:
           condition:
+            lvgl.page.is_showing: ${id}_page
+          then:
+            - script.execute:
+                id: led_ring_show_value
+                percent: !lambda return id(${id}_value) / 100.0f;
+                color: ${color}
+      - if:
+          condition:
             and:
               - lvgl.page.is_showing: ${id}_page
               - lambda: return millis() - id(${id}_touched) >= 1500;
@@ -110,6 +118,7 @@ lvgl:
             detent_strength: 1.0
             endstop_strength: 1.0
             position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+        - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc

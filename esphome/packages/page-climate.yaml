@@ -74,6 +74,15 @@ script:
             return str_sprintf("%s  %.1f° now", mode.c_str(), now);
       - if:
           condition:
+            lvgl.page.is_showing: ${id}_page
+          then:
+            - script.execute:
+                id: led_ring_show_value
+                percent: !lambda |-
+                  return (id(${id}_value) - ${min_temp}) / (${max_temp} - ${min_temp});
+                color: ${color}
+      - if:
+          condition:
             and:
               - lvgl.page.is_showing: ${id}_page
               - lambda: return millis() - id(${id}_touched) >= 1500;
@@ -128,6 +137,7 @@ lvgl:
             endstop_strength: 1.0
             position: !lambda |-
               return (int32_t) lroundf((id(${id}_value) - ${min_temp}) / ${step});
+        - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc

@@ -55,5 +55,6 @@ compile_commands.json
 # ESPHome
 esphome/secrets.yaml
 esphome/.esphome/
+.esphome-venv/
 esphome/tests/test_smartknob
 esphome/tests/*.o
