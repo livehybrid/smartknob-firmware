@@ -6,7 +6,9 @@ smartknob:
   on_position_change:
     - if:
         condition:
-          lvgl.page.is_showing: setup_page
+          and:
+            - lvgl.page.is_showing: setup_page
+            - lambda: return !id(menu_open);
         then:
           - lvgl.label.update:
               id: setup_position
@@ -43,12 +45,23 @@ lvgl:
   pages:
     - id: setup_page
       on_load:
-        - smartknob.set_profile:
-            preset: unbounded_detents
-            position: 0
-        - lvgl.label.update:
-            id: setup_position
-            text: "0"
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: menu_setup
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "Setup"
+            else:
+              - smartknob.set_profile:
+                  preset: unbounded_detents
+                  position: 0
+              - lvgl.label.update:
+                  id: setup_position
+                  text: "0"
       widgets:
         - arc:
             id: setup_arc

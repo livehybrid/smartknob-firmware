@@ -8,12 +8,14 @@
 #   max_temp: highest target, °C (default 28)
 #   step:     target step, °C (default 0.5)
 #   color:    accent colour (default orange)
+#   icon:     menu icon id (default menu_climate; see packages/smartknob-base.yaml)
 
 defaults:
   min_temp: "16"
   max_temp: "28"
   step: "0.5"
   color: "0xFF6B2C"
+  icon: "menu_climate"
 
 globals:
   - id: ${id}_value # target temperature, °C
@@ -94,7 +96,9 @@ smartknob:
   on_position_change:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - lambda: |-
               id(${id}_value) = ${min_temp} + x * ${step};
@@ -104,7 +108,9 @@ smartknob:
   on_short_press:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - homeassistant.action:
               action: climate.toggle
@@ -129,15 +135,26 @@ lvgl:
   pages:
     - id: ${id}_page
       on_load:
-        - smartknob.set_profile:
-            min_position: 0
-            max_position: !lambda return (int32_t) lroundf((${max_temp} - ${min_temp}) / ${step});
-            position_width: 10
-            detent_strength: 1.5
-            endstop_strength: 1.0
-            position: !lambda |-
-              return (int32_t) lroundf((id(${id}_value) - ${min_temp}) / ${step});
-        - script.execute: ${id}_show
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  min_position: 0
+                  max_position: !lambda return (int32_t) lroundf((${max_temp} - ${min_temp}) / ${step});
+                  position_width: 10
+                  detent_strength: 1.5
+                  endstop_strength: 1.0
+                  position: !lambda |-
+                    return (int32_t) lroundf((id(${id}_value) - ${min_temp}) / ${step});
+              - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc

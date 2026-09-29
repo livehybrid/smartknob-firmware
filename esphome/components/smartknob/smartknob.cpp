@@ -176,6 +176,7 @@ void SmartKnob::loop() {
       this->seen_press_count_++;
       this->press_start_ms_ = now;
       this->long_press_fired_ = false;
+      this->menu_press_fired_ = false;
 #ifdef USE_BINARY_SENSOR
       if (this->pressed_binary_sensor_ != nullptr)
         this->pressed_binary_sensor_->publish_state(true);
@@ -199,6 +200,11 @@ void SmartKnob::loop() {
       now - this->press_start_ms_ >= this->long_press_ms_) {
     this->long_press_fired_ = true;
     this->long_press_callback_.call();
+  }
+  if (this->seen_press_count_ != this->seen_release_count_ && !this->menu_press_fired_ &&
+      now - this->press_start_ms_ >= this->menu_press_ms_) {
+    this->menu_press_fired_ = true;
+    this->menu_press_callback_.call();
   }
 
   // Calibration results.

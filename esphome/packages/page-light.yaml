@@ -6,10 +6,12 @@
 #   name:   title shown on the display
 #   step:   brightness step in percent, must divide 100 (default 5)
 #   color:  accent colour (default amber)
+#   icon:   menu icon id (default menu_light; see packages/smartknob-base.yaml)
 
 defaults:
   step: "5"
   color: "0xFFB340"
+  icon: "menu_light"
 
 globals:
   - id: ${id}_value # brightness in percent, 0 = off
@@ -77,7 +79,9 @@ smartknob:
   on_position_change:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - lambda: |-
               id(${id}_value) = x * ${step};
@@ -87,7 +91,9 @@ smartknob:
   on_short_press:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - homeassistant.action:
               action: light.toggle
@@ -122,14 +128,28 @@ lvgl:
   pages:
     - id: ${id}_page
       on_load:
-        - smartknob.set_profile:
-            min_position: 0
-            max_position: !lambda return 100 / ${step};
-            position_width: 7
-            detent_strength: 1.0
-            endstop_strength: 1.0
-            position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
-        - script.execute: ${id}_show
+        # Also fires while browsing the page menu (each page-next/previous
+        # is a real screen load); show this page's menu entry instead of
+        # touching the real haptic profile in that case.
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  min_position: 0
+                  max_position: !lambda return 100 / ${step};
+                  position_width: 7
+                  detent_strength: 1.0
+                  endstop_strength: 1.0
+                  position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+              - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc

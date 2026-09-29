@@ -7,9 +7,11 @@
 #   entity: entity to switch, e.g. switch.coffee_machine
 #   name:   title shown on the display
 #   color:  accent colour (default yellow)
+#   icon:   menu icon id (default menu_switch; see packages/smartknob-base.yaml)
 
 defaults:
   color: "0xFFD60A"
+  icon: "menu_switch"
 
 globals:
   - id: ${id}_value # 0 = off, 1 = on
@@ -61,7 +63,9 @@ smartknob:
   on_position_change:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - lambda: |-
               id(${id}_value) = x;
@@ -83,7 +87,9 @@ smartknob:
   on_short_press:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - homeassistant.action:
               action: homeassistant.toggle
@@ -94,10 +100,21 @@ lvgl:
   pages:
     - id: ${id}_page
       on_load:
-        - smartknob.set_profile:
-            preset: on_off
-            position: !lambda return id(${id}_value);
-        - script.execute: ${id}_show
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  preset: on_off
+                  position: !lambda return id(${id}_value);
+              - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc

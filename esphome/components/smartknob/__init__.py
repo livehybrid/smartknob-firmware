@@ -109,6 +109,8 @@ CONF_ON_CALIBRATION = "on_calibration"
 CONF_ON_SHORT_PRESS = "on_short_press"
 CONF_ON_LONG_PRESS = "on_long_press"
 CONF_LONG_PRESS_TIME = "long_press_time"
+CONF_ON_MENU_PRESS = "on_menu_press"
+CONF_MENU_PRESS_TIME = "menu_press_time"
 CONF_STRENGTH = "strength"
 CONF_ENABLED = "enabled"
 CONF_PRESS = "press"
@@ -317,6 +319,12 @@ def _validate_strain(config):
     return config
 
 
+def _validate_press_times(config):
+    if config[CONF_MENU_PRESS_TIME].total_milliseconds <= config[CONF_LONG_PRESS_TIME].total_milliseconds:
+        raise cv.Invalid(f"{CONF_MENU_PRESS_TIME} must be greater than {CONF_LONG_PRESS_TIME}")
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -341,10 +349,16 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_LONG_PRESS_TIME, default="350ms"
             ): cv.positive_time_period_milliseconds,
+            # Held past this (longer than long_press_time) opens the page
+            # menu instead of just paging forward; both fire on the same hold.
+            cv.Optional(
+                CONF_MENU_PRESS_TIME, default="1200ms"
+            ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_ON_PRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_RELEASE): automation.validate_automation({}),
             cv.Optional(CONF_ON_SHORT_PRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_LONG_PRESS): automation.validate_automation({}),
+            cv.Optional(CONF_ON_MENU_PRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_CALIBRATION): automation.validate_automation({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
@@ -360,6 +374,7 @@ CONFIG_SCHEMA = cv.All(
         msg_prefix="smartknob (needs MCPWM)",
     ),
     _validate_strain,
+    _validate_press_times,
 )
 
 
@@ -387,6 +402,7 @@ _CALLBACK_AUTOMATIONS = (
     automation.CallbackAutomation(CONF_ON_RELEASE, "add_on_release_callback"),
     automation.CallbackAutomation(CONF_ON_SHORT_PRESS, "add_on_short_press_callback"),
     automation.CallbackAutomation(CONF_ON_LONG_PRESS, "add_on_long_press_callback"),
+    automation.CallbackAutomation(CONF_ON_MENU_PRESS, "add_on_menu_press_callback"),
     automation.CallbackAutomation(
         CONF_ON_CALIBRATION, "add_on_calibration_callback", [(cg.bool_, "success")]
     ),
@@ -461,6 +477,7 @@ async def to_code(config):
     cg.add(var.set_task(config[CONF_TASK_CORE], config[CONF_TASK_PRIORITY]))
     cg.add(var.set_auto_calibrate(config[CONF_AUTO_CALIBRATE]))
     cg.add(var.set_long_press_time(config[CONF_LONG_PRESS_TIME].total_milliseconds))
+    cg.add(var.set_menu_press_time(config[CONF_MENU_PRESS_TIME].total_milliseconds))
 
     profile = _resolve_profile(config[CONF_INITIAL_PROFILE])
     cg.add(

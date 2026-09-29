@@ -76,6 +76,7 @@ class SmartKnob : public Component
   }
   void set_auto_calibrate(bool auto_calibrate) { this->auto_calibrate_ = auto_calibrate; }
   void set_long_press_time(uint32_t ms) { this->long_press_ms_ = ms; }
+  void set_menu_press_time(uint32_t ms) { this->menu_press_ms_ = ms; }
   void set_initial_profile(int32_t min_position, int32_t max_position, float width, float detent, float endstop,
                            float snap, float bias, int32_t position);
   void add_initial_detent_position(int32_t position) {
@@ -127,6 +128,12 @@ class SmartKnob : public Component
   template<typename F> void add_on_long_press_callback(F &&callback) {
     this->long_press_callback_.add(std::forward<F>(callback));
   }
+  // Fires once, while still held, after menu_press_time (held longer than a
+  // plain long press). Independent of on_long_press: both fire in sequence
+  // on a long enough hold.
+  template<typename F> void add_on_menu_press_callback(F &&callback) {
+    this->menu_press_callback_.add(std::forward<F>(callback));
+  }
   template<typename F> void add_on_calibration_callback(F &&callback) {
     this->calibration_callback_.add(std::forward<F>(callback));
   }
@@ -176,8 +183,10 @@ class SmartKnob : public Component
   uint32_t seen_press_count_{0};
   uint32_t seen_release_count_{0};
   uint32_t long_press_ms_{600};
+  uint32_t menu_press_ms_{1200};
   uint32_t press_start_ms_{0};
   bool long_press_fired_{false};
+  bool menu_press_fired_{false};
   uint32_t seen_calibration_sequence_{0};
   uint32_t last_strain_publish_ms_{0};
   float last_strain_published_{-1.0f};
@@ -200,6 +209,7 @@ class SmartKnob : public Component
   CallbackManager<void()> release_callback_{};
   CallbackManager<void()> short_press_callback_{};
   CallbackManager<void()> long_press_callback_{};
+  CallbackManager<void()> menu_press_callback_{};
   CallbackManager<void(bool)> calibration_callback_{};
 };
 

@@ -6,10 +6,12 @@
 #   name:   title shown on the display
 #   step:   position step in percent, must divide 100 (default 5)
 #   color:  accent colour (default blue)
+#   icon:   menu icon id (default menu_cover; see packages/smartknob-base.yaml)
 
 defaults:
   step: "5"
   color: "0x0A84FF"
+  icon: "menu_cover"
 
 globals:
   - id: ${id}_value # position in percent, 100 = open
@@ -76,7 +78,9 @@ smartknob:
   on_position_change:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - lambda: |-
               id(${id}_value) = x * ${step};
@@ -86,7 +90,9 @@ smartknob:
   on_short_press:
     - if:
         condition:
-          lvgl.page.is_showing: ${id}_page
+          and:
+            - lvgl.page.is_showing: ${id}_page
+            - lambda: return !id(menu_open);
         then:
           - homeassistant.action:
               action: cover.toggle
@@ -111,14 +117,25 @@ lvgl:
   pages:
     - id: ${id}_page
       on_load:
-        - smartknob.set_profile:
-            min_position: 0
-            max_position: !lambda return 100 / ${step};
-            position_width: 8
-            detent_strength: 1.0
-            endstop_strength: 1.0
-            position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
-        - script.execute: ${id}_show
+        - if:
+            condition:
+              lambda: return id(menu_open);
+            then:
+              - lvgl.image.update:
+                  id: menu_display_icon
+                  src: ${icon}
+              - lvgl.label.update:
+                  id: menu_display_name
+                  text: "${name}"
+            else:
+              - smartknob.set_profile:
+                  min_position: 0
+                  max_position: !lambda return 100 / ${step};
+                  position_width: 8
+                  detent_strength: 1.0
+                  endstop_strength: 1.0
+                  position: !lambda return (id(${id}_value) + ${step} / 2) / ${step};
+              - script.execute: ${id}_show
       widgets:
         - arc:
             id: ${id}_arc
