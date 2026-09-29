@@ -9,8 +9,9 @@
 # Pin map from the SeedLabs firmware (platformio.ini, env seedlabs_devkit).
 
 substitutions:
-  display_timeout: 30s
+  display_timeout: "30"  # seconds; seeds the "Active timeout" number below, tune live in Home Assistant after that
   accent_color: "0xFF9F0A"
+  weather_entity: "weather.home"  # override in your device YAML if this isn't yours
 
 esp32:
   variant: esp32s3
@@ -100,7 +101,8 @@ sensor:
     on_value:
       - if:
           condition:
-            lambda: return !std::isnan(x) && x < 0.12;
+            lambda: |-
+              return !std::isnan(x) && x < id(approach_distance).state && id(wake_on_approach).state;
           then:
             - script.execute: wake_display
 
@@ -111,24 +113,23 @@ sensor:
       name: Ambient light
       entity_category: diagnostic
       on_value:
-        - if:
-            condition:
-              switch.is_on: auto_brightness
-            then:
-              - light.turn_on:
-                  id: backlight
-                  brightness: !lambda |-
-                    // The sensor faces backward (away from the room), so it
-                    // reads well below the room's actual light level. Floor
-                    // 25%, full brightness by ~60 lx on the sensor.
-                    return clamp(0.25f + x / 80.0f, 0.25f, 1.0f);
-                  transition_length: 2s
+        - script.execute: apply_auto_brightness
     update_interval: 30s
 
   - platform: wifi_signal
     name: WiFi signal
     update_interval: 60s
     entity_category: diagnostic
+
+  - platform: homeassistant
+    id: weather_temperature
+    name: Weather temperature
+    internal: false  # homeassistant.sensor defaults internal: true regardless of name:
+    entity_id: ${weather_entity}
+    attribute: temperature
+    entity_category: diagnostic
+    on_value:
+      - script.execute: update_screensaver
 
 binary_sensor:
   - platform: smartknob
@@ -140,9 +141,19 @@ binary_sensor:
     name: Presence
     device_class: occupancy
     lambda: |-
-      return !std::isnan(id(proximity).state) && id(proximity).state < 0.15f;
+      return !std::isnan(id(proximity).state) && id(proximity).state < id(approach_distance).state;
     filters:
       - delayed_off: 2s
+
+text_sensor:
+  - platform: homeassistant
+    id: weather_condition
+    name: Weather condition
+    internal: false
+    entity_id: ${weather_entity}
+    entity_category: diagnostic
+    on_value:
+      - script.execute: update_screensaver
 
 i2c:
   sda: GPIO39
@@ -150,6 +161,83 @@ i2c:
   frequency: 400kHz
 
 number:
+  # How long the screen stays fully awake after the last turn, press or
+  # (if "Wake on approach" is on) hand approaching, before dimming into
+  # the screensaver (or, in "Off" mode, going dark as it always did).
+  - platform: template
+    id: active_timeout
+    name: Active timeout
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: ${display_timeout}
+    min_value: 5
+    max_value: 600
+    step: 5
+    unit_of_measurement: s
+    mode: box
+
+  # Only used in "Clock then blank" mode: how long the screensaver stays
+  # up before the display goes fully dark.
+  - platform: template
+    id: screensaver_blank_delay
+    name: Screensaver blank delay
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 300
+    min_value: 10
+    max_value: 3600
+    step: 10
+    unit_of_measurement: s
+    mode: box
+
+  - platform: template
+    id: screensaver_brightness
+    name: Screensaver brightness
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 45
+    min_value: 1
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: box
+
+  # How close (metres) counts as "approaching", for both the Presence
+  # sensor and (if enabled) waking the display.
+  - platform: template
+    id: approach_distance
+    name: Approach distance
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 0.15
+    min_value: 0.05
+    max_value: 1.0
+    step: 0.01
+    unit_of_measurement: m
+    mode: box
+
+  # How long to hold before it counts as a long press (next page) rather
+  # than a short press (the page's own action). Shorter feels snappier for
+  # paging through; too short risks a quick press registering as long.
+  - platform: template
+    id: long_press_time
+    name: Long press time
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: 350
+    min_value: 150
+    max_value: 1500
+    step: 25
+    unit_of_measurement: ms
+    mode: box
+    on_value:
+      - smartknob.set_long_press_time: !lambda return (uint32_t) x;
+
   # Press detection thresholds, in raw strain counts from the idle baseline.
   # Watch "Press strain" while pressing to tune these.
   - platform: template
@@ -180,6 +268,19 @@ number:
     on_value:
       - smartknob.set_press_thresholds:
           release: !lambda return x;
+
+select:
+  - platform: template
+    id: screensaver_mode
+    name: Screensaver
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    options:
+      - "Off"
+      - "Dim clock"
+      - "Clock then blank"
+    initial_option: "Dim clock"
 
 button:
   - platform: template
@@ -215,6 +316,27 @@ switch:
     entity_category: config
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+
+  - platform: template
+    id: wake_on_approach
+    name: Wake on approach
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    # No timezone: set, so it is pulled from Home Assistant along with the time.
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_screensaver
+
+globals:
+  - id: screensaver_active
+    type: bool
+    initial_value: "false"
 
 # ------------------------------------------------------------------ display --
 
@@ -266,25 +388,104 @@ light:
       - pulse:
 
 script:
-  # Backlight (and LED ring) on, then off after display_timeout without activity.
-  - id: wake_display
-    mode: restart
+  # Applies the ambient-light curve to the backlight; also the "back to
+  # full brightness" step when waking from the dimmed screensaver, so it
+  # doesn't wait for the next 30 s ambient-light tick to brighten back up.
+  - id: apply_auto_brightness
     then:
       - if:
           condition:
-            light.is_off: backlight
+            switch.is_on: auto_brightness
           then:
-            - light.turn_on: backlight
             - light.turn_on:
-                id: led_ring
-                transition_length: 0s
-      - delay: ${display_timeout}
-      - light.turn_off:
-          id: backlight
-          transition_length: 1s
-      - light.turn_off:
+                id: backlight
+                brightness: !lambda |-
+                  // The sensor faces backward (away from the room), so it
+                  // reads well below the room's actual light level. Floor
+                  // 25%, full brightness by ~60 lx on the sensor.
+                  return clamp(0.25f + id(ambient_light).state / 80.0f, 0.25f, 1.0f);
+                transition_length: 2s
+          else:
+            - light.turn_on:
+                id: backlight
+                transition_length: 250ms
+
+  # Active -> (Screensaver ->) Off, gated by the "Screensaver" select.
+  #   Off:               active_timeout, then dark, as before.
+  #   Dim clock:          active_timeout, then the clock/weather overlay,
+  #                        dimmed, indefinitely.
+  #   Clock then blank:   as above, then dark after screensaver_blank_delay.
+  # Restarts from the top on every call (turn, press, or approach), so any
+  # interaction always returns straight to full brightness on whatever page
+  # was already showing underneath.
+  - id: wake_display
+    mode: restart
+    then:
+      - lambda: id(screensaver_active) = false;
+      - lvgl.widget.hide: screensaver_overlay
+      - script.execute: apply_auto_brightness
+      - light.turn_on:
           id: led_ring
-          transition_length: 1s
+          transition_length: 0s
+      - delay: !lambda return (uint32_t) (id(active_timeout).state * 1000.0f);
+      - if:
+          condition:
+            lambda: return id(screensaver_mode).current_option() == "Off";
+          then:
+            - light.turn_off:
+                id: backlight
+                transition_length: 1s
+            - light.turn_off:
+                id: led_ring
+                transition_length: 1s
+          else:
+            - lambda: id(screensaver_active) = true;
+            - script.execute: update_screensaver
+            - lvgl.widget.show: screensaver_overlay
+            - light.turn_off:
+                id: led_ring
+                transition_length: 1s
+            - light.turn_on:
+                id: backlight
+                brightness: !lambda return id(screensaver_brightness).state / 100.0f;
+                transition_length: 2s
+            - if:
+                condition:
+                  lambda: return id(screensaver_mode).current_option() == "Clock then blank";
+                then:
+                  - delay: !lambda return (uint32_t) (id(screensaver_blank_delay).state * 1000.0f);
+                  - lambda: id(screensaver_active) = false;
+                  - lvgl.widget.hide: screensaver_overlay
+                  - light.turn_off:
+                      id: backlight
+                      transition_length: 1s
+
+  # Refreshes the screensaver's clock, date and weather text. Called on
+  # every minute, every weather update, and right before the overlay is
+  # shown, so it is never stale when it appears.
+  - id: update_screensaver
+    then:
+      - if:
+          condition:
+            time.has_time: {}
+          then:
+            - lvgl.label.update:
+                id: screensaver_clock
+                text: !lambda return id(ha_time).now().strftime("%H:%M");
+            - lvgl.label.update:
+                id: screensaver_date
+                text: !lambda return id(ha_time).now().strftime("%A %d %B");
+      - lvgl.label.update:
+          id: screensaver_weather
+          text: !lambda |-
+            if (std::isnan(id(weather_temperature).state) || id(weather_condition).state.empty())
+              return std::string("");
+            std::string condition = id(weather_condition).state;
+            for (char &c : condition)
+              if (c == '-' || c == '_') c = ' ';
+            if (!condition.empty())
+              condition[0] = static_cast<char>(toupper(static_cast<unsigned char>(condition[0])));
+            return str_sprintf("%s, %.0f°", condition.c_str(), id(weather_temperature).state);
 
   # Called by each page to show its value as a lit arc on the physical LED
   # ring (0 = LED 0, clockwise), in the page's own accent colour. Assumes
@@ -348,6 +549,44 @@ lvgl:
           text: "offline"
           text_font: montserrat_14
           text_color: 0xFF453A
+      # Screensaver: clock, date, weather. A full-screen opaque background
+      # covers whatever page is underneath; hidden by default, shown by
+      # wake_display once the active timeout elapses (see the "Screensaver"
+      # select entity for Off / Dim clock / Clock then blank).
+      - obj:
+          id: screensaver_overlay
+          hidden: true
+          width: 240
+          height: 240
+          align: CENTER
+          radius: 0
+          border_width: 0
+          bg_color: 0x000000
+          bg_opa: COVER
+          widgets:
+            # Full white, not the muted page_detail grey: this has to read
+            # clearly from across a room at a deliberately dim brightness.
+            - label:
+                id: screensaver_clock
+                align: CENTER
+                y: -25
+                text_font: montserrat_48
+                text_color: 0xFFFFFF
+                text: "--:--"
+            - label:
+                id: screensaver_date
+                align: CENTER
+                y: 18
+                text_font: montserrat_18
+                text_color: 0xFFFFFF
+                text: ""
+            - label:
+                id: screensaver_weather
+                align: CENTER
+                y: 46
+                text_font: montserrat_18
+                text_color: 0xFFFFFF
+                text: ""
 
 api:
   on_client_connected:

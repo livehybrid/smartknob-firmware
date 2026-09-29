@@ -61,6 +61,9 @@ SetHapticsAction = smartknob_ns.class_(
 SetPressThresholdsAction = smartknob_ns.class_(
     "SetPressThresholdsAction", automation.Action, cg.Parented.template(SmartKnob)
 )
+SetLongPressTimeAction = smartknob_ns.class_(
+    "SetLongPressTimeAction", automation.Action, cg.Parented.template(SmartKnob)
+)
 
 CONF_SMARTKNOB_ID = "smartknob_id"
 CONF_MOTOR = "motor"
@@ -336,7 +339,7 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_ON_POSITION_CHANGE): automation.validate_automation({}),
             cv.Optional(
-                CONF_LONG_PRESS_TIME, default="600ms"
+                CONF_LONG_PRESS_TIME, default="350ms"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_ON_PRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_RELEASE): automation.validate_automation({}),
@@ -598,4 +601,25 @@ async def set_press_thresholds_to_code(config, action_id, template_arg, args):
         cg.add(var.set_press(await cg.templatable(config[CONF_PRESS], args, cg.float_)))
     if CONF_RELEASE in config:
         cg.add(var.set_release(await cg.templatable(config[CONF_RELEASE], args, cg.float_)))
+    return var
+
+
+@automation.register_action(
+    "smartknob.set_long_press_time",
+    SetLongPressTimeAction,
+    cv.maybe_simple_value(
+        KNOB_ID_SCHEMA.extend(
+            {cv.Required(CONF_LONG_PRESS_TIME): cv.templatable(cv.positive_time_period_milliseconds)}
+        ),
+        key=CONF_LONG_PRESS_TIME,
+    ),
+    synchronous=True,
+)
+async def set_long_press_time_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    time = config[CONF_LONG_PRESS_TIME]
+    if not cg.is_template(time):
+        time = int(time.total_milliseconds)
+    cg.add(var.set_time(await cg.templatable(time, args, cg.uint32)))
     return var

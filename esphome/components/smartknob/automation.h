@@ -95,4 +95,11 @@ template<typename... Ts> class SetPressThresholdsAction : public Action<Ts...>, 
   }
 };
 
+template<typename... Ts> class SetLongPressTimeAction : public Action<Ts...>, public Parented<SmartKnob> {
+ public:
+  TEMPLATABLE_VALUE(uint32_t, time)
+
+  void play(const Ts &...x) override { this->parent_->set_long_press_time(this->time_.value(x...)); }
+};
+
 }  // namespace esphome::smartknob

@@ -58,3 +58,6 @@ esphome/.esphome/
 .esphome-venv/
 esphome/tests/test_smartknob
 esphome/tests/*.o
+
+# Local secrets (never commit)
+.env

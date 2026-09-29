@@ -12,7 +12,8 @@
 substitutions:
   name: smartknob
   friendly_name: SmartKnob
-  display_timeout: 5min
+  display_timeout: "300"  # 5 minutes, in seconds (see packages/smartknob-base.yaml)
+  weather_entity: "weather.tomorrow_io_home_daily"
 
 esphome:
   name: ${name}
