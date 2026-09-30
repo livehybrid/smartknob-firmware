@@ -3,6 +3,11 @@
 
 ## Supports: Smart Knob Dev Kit v0.1
 
+> **Looking for an ESPHome-based alternative firmware?** See
+> [`esphome/`](esphome/README.md) - a from-scratch ESPHome build with
+> full Home Assistant integration, haptic detents, a screensaver, and
+> configurable pages for lights, covers, climate, media and more.
+
 ### Table of Contents
 1. [Introduction](#introduction)
 2. [Why a Smart Knob Development Kit](#why)
